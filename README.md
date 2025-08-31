@@ -158,6 +158,9 @@ src/main/java/com/example/mafiagame/
 - HTTPS 적용
 - 입력값 검증 및 XSS 방지
 
+## 에러 사항과 해결 방법
+-StompHandler가 인증한 사용자 정보가 다른 스레드에서 작동하는 ChatController로 넘어가는 과정에서 principal 유실 -> StompHandler가 인증에 성공한 직후, 그 사용자 정보를 websocket 세션 공유 공간 이용하여 principal 정보를 가져옴
+
 ## 🚧 향후 개선 계획
 
 - [ ] 게임 타이머 기능
