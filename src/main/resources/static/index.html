@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>마피아 게임</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>마피아 게임</h1>
+        </div>
+        
+        <!-- 로그인 폼 -->
+        <div id="loginForm" class="login-form">
+            <h2>로그인</h2>
+            <input type="text" id="userLoginId" placeholder="아이디" required>
+            <input type="password" id="userLoginPassword" placeholder="비밀번호" required>
+            <button onclick="login()">로그인</button>
+            <button onclick="showRegister()">회원가입</button>
+        </div>
+        
+        <!-- 회원가입 폼 -->
+        <div id="registerForm" class="login-form hidden">
+            <h2>회원가입</h2>
+            <input type="text" id="regUserLoginId" placeholder="아이디" required>
+            <input type="password" id="regUserLoginPassword" placeholder="비밀번호" required>
+            <input type="text" id="regNickname" placeholder="닉네임" required>
+            <button onclick="register()">가입하기</button>
+            <button onclick="showLogin()">로그인으로 돌아가기</button>
+        </div>
+        
+        <!-- 메인 게임 화면 -->
+        <div id="gameScreen" class="main-content hidden">
+            <div class="sidebar">
+                <div class="user-info">
+                    <h4>현재 사용자: <span id="currentUserName"></span></h4>
+                    <div class="connection-status">
+                        연결 상태: <span id="connectionStatus">연결 중...</span>
+                    </div>
+                    <div class="room-status">
+                        현재 방: <span id="currentRoomStatus">없음</span>
+                    </div>
+                    <button onclick="logout()" class="logout-btn">로그아웃</button>
+                </div>
+                
+                <h3>채팅룸 목록</h3>
+                <div class="room-list" id="roomList">
+                    <!-- 채팅룸 목록이 여기에 표시됩니다 -->
+                </div>
+                
+                <div class="game-controls">
+                    <button onclick="createRoom()">새 방 만들기</button>
+                    <button id="startGameBtn" onclick="startGame()" disabled>게임 시작</button>
+                    <button id="endGameBtn" onclick="endGame()" disabled>게임 종료</button>
+                    <button onclick="leaveRoom()" class="leave-room-btn">방 나가기</button>
+                </div>
+            </div>
+            
+            <div class="chat-area">
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 채팅 메시지가 여기에 표시됩니다 -->
+                </div>
+                
+                <div class="chat-input">
+                    <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." onkeypress="handleKeyPress(event)">
+                    <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
