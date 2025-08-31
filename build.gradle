@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.4'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    sourceCompatibility = '17'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// 프로젝트에 필요한 라이브러리(의존성)를 정의합니다.
+dependencies {
+    // Spring Boot 웹 스타터
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // Spring Boot 웹소켓 스타터
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // for valid
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Spring Boot 개발 도구
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // Spring Boot 테스트
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    //h2
+    runtimeOnly 'com.h2database:h2'
+
+    //JPA
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    //Spring Security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    //JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
