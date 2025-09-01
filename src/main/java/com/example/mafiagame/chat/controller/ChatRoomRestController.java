@@ -20,10 +20,10 @@ public class ChatRoomRestController {
     @PostMapping
     public ResponseEntity<ChatRoom> createRoom(@RequestBody Map<String, Object> request) {
         String roomName = (String) request.get("roomName");
-        String hostId = (String) request.get("hostId");
-        Integer maxPlayers = (Integer) request.getOrDefault("maxPlayers", 8);
+        String userId = (String) request.get("userId");
 
-        ChatRoom room = chatRoomService.createRoom(roomName, hostId, maxPlayers);
+
+        ChatRoom room = chatRoomService.createRoom(roomName, userId);
         return ResponseEntity.ok(room);
     }
 
@@ -54,7 +54,12 @@ public class ChatRoomRestController {
         boolean success = chatRoomService.joinRoom(roomId, userId, userName);
         
         if (success) {
-            return ResponseEntity.ok(Map.of("message", "방 입장 성공"));
+            // 방 정보를 반환하여 클라이언트에서 방장 정보 등을 확인할 수 있도록 함
+            ChatRoom room = chatRoomService.getRoom(roomId);
+            return ResponseEntity.ok(Map.of(
+                "message", "방 입장 성공",
+                "room", room
+            ));
         } else {
             return ResponseEntity.badRequest().body(Map.of("error", "방 입장 실패"));
         }

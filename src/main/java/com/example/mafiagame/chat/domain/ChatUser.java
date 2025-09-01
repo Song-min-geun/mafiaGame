@@ -1,7 +1,5 @@
 package com.example.mafiagame.chat.domain;
 
-import java.util.Date;
-
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +12,6 @@ import lombok.NoArgsConstructor;
 public class ChatUser {
     private String userId;
     private String userName;
-    private boolean isOnline;
-    private Date lastSeen;
+    @Builder.Default
+    private boolean isHost = false;  // 방장 여부
 }
