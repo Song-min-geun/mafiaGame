@@ -12,7 +12,20 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>마피아 게임</h1>
+            <div class="header-user-info">
+                <h1>마피아 게임</h1>
+            </div>
+            <div class="header-user-info" id="headerUserInfo" style="display: none;">
+                <div class="user-status">
+                    <span class="user-nickname" id="headerUserName"></span>
+                    <span class="connection-indicator" id="headerConnectionStatus">🔴</span>
+                </div>
+                <div class="room-status">
+                    <span class="current-room-label">현재 방:</span>
+                    <span class="current-room" id="headerCurrentRoom"></span>
+                </div>
+                <button onclick="logout()" class="header-logout-btn">로그아웃</button>
+            </div>
         </div>
         
         <!-- 로그인 폼 -->
@@ -28,16 +41,22 @@
         <div id="registerForm" class="login-form hidden">
             <h2>회원가입</h2>
             <input type="text" id="regUserLoginId" placeholder="아이디" required>
-            <input type="password" id="regUserLoginPassword" placeholder="비밀번호" required>
+            <div class="password-group">
+                <input type="password" id="regUserLoginPassword" placeholder="비밀번호" required onkeyup="checkPasswordMatch()">
+                <div class="confirm-password-row">
+                    <input type="password" id="regUserLoginPasswordConfirm" placeholder="비밀번호 확인" required onkeyup="checkPasswordMatch()">
+                    <div id="passwordMatchStatus" class="password-match-status"></div>
+                </div>
+            </div>
             <input type="text" id="regNickname" placeholder="닉네임" required>
-            <button onclick="register()">가입하기</button>
+            <button onclick="register()" id="registerBtn">가입하기</button>
             <button onclick="showLogin()">로그인으로 돌아가기</button>
         </div>
         
         <!-- 메인 게임 화면 -->
         <div id="gameScreen" class="main-content hidden">
             <div class="sidebar">
-                <div class="user-info">
+                <div class="user-info" style="display: none;">
                     <h4>현재 사용자: <span id="currentUserName"></span></h4>
                     <div class="connection-status">
                         연결 상태: <span id="connectionStatus">연결 중...</span>
@@ -48,16 +67,21 @@
                     <button onclick="logout()" class="logout-btn">로그아웃</button>
                 </div>
                 
-                <h3>채팅룸 목록</h3>
+                <div class="room-list-header">
+                    <h3>채팅룸 목록</h3>
+                    <button onclick="refreshRoomList()" class="refresh-btn" id="refreshBtn">
+                        <span class="refresh-icon">🔄</span>
+                        <span class="refresh-text">새로고침</span>
+                    </button>
+                </div>
                 <div class="room-list" id="roomList">
                     <!-- 채팅룸 목록이 여기에 표시됩니다 -->
                 </div>
                 
                 <div class="game-controls">
-                    <button onclick="createRoom()">새 방 만들기</button>
+                    <button onclick="createRoom()" id="createRoomBtn">새 방 만들기</button>
                     <button id="startGameBtn" onclick="startGame()" disabled>게임 시작</button>
-                    <button id="endGameBtn" onclick="endGame()" disabled>게임 종료</button>
-                    <button onclick="leaveRoom()" class="leave-room-btn">방 나가기</button>
+                    <button onclick="leaveRoom()" class="leave-room-btn" id="leaveRoomBtn" style="display: none;">방 나가기</button>
                 </div>
             </div>
             

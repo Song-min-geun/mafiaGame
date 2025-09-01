@@ -18,7 +18,92 @@ body {
     background: #2c3e50;
     color: white;
     padding: 20px;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 60px;
+}
+
+.header-left h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #ecf0f1;
+}
+
+/* ❗ 수정: 헤더 사용자 정보 스타일 */
+.header-user-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.user-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-nickname {
+    font-weight: bold;
+    color: #ecf0f1;
+    font-size: 16px;
+}
+
+.connection-indicator {
+    font-size: 18px;
+    padding: 2px 6px;
+    border-radius: 50%;
+}
+
+.connection-indicator.connected {
+    color: #27ae60;
+    background: rgba(39, 174, 96, 0.1);
+}
+
+.connection-indicator.disconnected {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.room-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #34495e;
+    padding: 6px 12px;
+    border-radius: 20px;
+}
+
+.current-room-label {
+    color: #bdc3c7;
+    font-size: 12px;
+}
+
+.current-room {
+    color: #ecf0f1;
+    font-weight: bold;
+    font-size: 13px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header-logout-btn {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s ease;
+}
+
+.header-logout-btn:hover {
+    background: #c0392b;
 }
 
 .main-content {
@@ -73,20 +158,207 @@ body {
     background: #2980b9;
 }
 
+/* ❗ 추가: 비밀번호 확인 스타일 */
+.password-group {
+    position: relative;
+    margin-bottom: 15px;
+}
+
+.password-group input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+}
+
+.confirm-password-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.confirm-password-row input[type="password"] {
+    width: 300px;
+    box-sizing: border-box;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+.password-match-status {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    text-align: center;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    width: 140px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.password-match-status.match {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.password-match-status.mismatch {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.password-match-status.empty {
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* ❗ 추가: 비밀번호 확인 상태 아이콘 */
+.password-match-status.match::before {
+    content: "✓ ";
+    font-weight: bold;
+}
+
+.password-match-status.mismatch::before {
+    content: "✗ ";
+    font-weight: bold;
+}
+
+/* ❗ 추가: 방 목록 헤더 스타일 */
+.room-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #555;
+}
+
+.room-list-header h3 {
+    margin: 0;
+    color: #ecf0f1;
+    font-size: 18px;
+}
+
+.refresh-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.refresh-btn:hover {
+    background: #2980b9;
+    transform: scale(1.05);
+}
+
+.refresh-btn:disabled {
+    background: #95a5a6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.refresh-btn.loading {
+    background: #f39c12;
+}
+
+.refresh-icon {
+    font-size: 14px;
+    transition: transform 0.3s ease;
+}
+
+.refresh-btn.loading .refresh-icon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .room-list {
     margin-bottom: 20px;
 }
 
 .room-item {
-    padding: 10px;
-    margin: 5px 0;
+    padding: 15px;
+    margin: 8px 0;
     background: #2c3e50;
-    border-radius: 5px;
+    border-radius: 8px;
     cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
 }
 
 .room-item:hover {
     background: #34495e;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.room-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.room-name {
+    color: #ecf0f1;
+    font-size: 16px;
+}
+
+.room-count {
+    color: #bdc3c7;
+    font-size: 14px;
+    background: #34495e;
+    padding: 3px 8px;
+    border-radius: 12px;
+}
+
+.current-room-badge {
+    position: absolute;
+    top: 15px;
+    right: 50px;
+    background: #27ae60;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.room-item.no-rooms {
+    text-align: center;
+    color: #95a5a6;
+    font-style: italic;
+    cursor: default;
+}
+
+.room-item.no-rooms:hover {
+    background: #2c3e50;
+    transform: none;
+    box-shadow: none;
+}
+
+.room-item.error {
+    text-align: center;
+    color: #e74c3c;
+    font-style: italic;
+    cursor: default;
+}
+
+.room-item.error:hover {
+    background: #2c3e50;
+    transform: none;
+    box-shadow: none;
 }
 
 .game-controls {
@@ -112,6 +384,8 @@ body {
     background: #95a5a6;
     cursor: not-allowed;
 }
+
+
 
 .leave-room-btn {
     background: #e67e22 !important;
@@ -240,6 +514,22 @@ body {
     padding: 10px;
     border: 1px solid #ddd;
     border-radius: 5px;
+    box-sizing: border-box;
+}
+
+.login-form .password-group {
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+.login-form .password-group input[type="password"] {
+    max-width: 300px;
+    margin: 10px auto;
+}
+
+.login-form .confirm-password-row {
+    max-width: 450px;
+    margin: 0 auto;
 }
 
 .login-form button {
@@ -301,4 +591,31 @@ body {
 
 .room-status span {
     font-weight: bold;
+}
+
+/* ❗ 추가: 시스템 메시지 스타일 */
+.message.system {
+    text-align: center;
+    margin: 10px 0;
+    padding-left: 30px;
+}
+
+.system-message {
+    display: inline-block;
+    background: #ecf0f1;
+    border: 1px solid #bdc3c7;
+    border-radius: 20px;
+    padding: 8px 16px;
+    color: #7f8c8d;
+    font-size: 0.9em;
+    font-style: italic;
+}
+
+.system-icon {
+    margin-right: 8px;
+    font-size: 1.1em;
+}
+
+.system-content {
+    color: #34495e;
 }
