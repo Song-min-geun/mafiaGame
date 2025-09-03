@@ -42,8 +42,11 @@ dependencies {
     // Spring Boot 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
-    //h2
+    //h2 (개발용)
     runtimeOnly 'com.h2database:h2'
+
+    //MySQL
+    runtimeOnly 'com.mysql:mysql-connector-j'
 
     //JPA
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'

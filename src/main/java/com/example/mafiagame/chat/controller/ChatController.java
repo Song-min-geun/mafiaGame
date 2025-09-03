@@ -7,8 +7,10 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Controller;
 
+import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.ChatMessage;
 import com.example.mafiagame.chat.service.ChatRoomService;
 
@@ -50,51 +52,102 @@ public class ChatController {
     }
 
     @MessageMapping("/room.join")
-    public void joinRoom(@Payload Map<String, Object> payload, Principal principal) {
+    public void joinRoom(@Payload Map<String, Object> payload, SimpMessageHeaderAccessor accessor) {
+        // ❗ 수정: sessionAttributes에서 사용자 정보 가져오기
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        if (sessionAttributes == null || sessionAttributes.get("user") == null) {
+            log.error("❌❌❌ 방 입장 실패: 세션에 사용자 정보가 없습니다! ❌❌❌");
+            return;
+        }
+        
+        UsernamePasswordAuthenticationToken auth = (UsernamePasswordAuthenticationToken) sessionAttributes.get("user");
+        String senderLoginId = auth.getName();
+        
         String roomId = (String) payload.get("roomId");
-        String senderLoginId = principal.getName();
         String senderName = chatRoomService.getParticipantName(roomId, senderLoginId);
 
         log.info("senderLoginId: {}, senderName: {}", senderLoginId, senderName);
         log.info("User {} joining room: {}", senderName, roomId);
 
-        // 방 입장 시스템 메시지
-        ChatMessage joinMessage = ChatMessage.builder()
-                .type(ChatMessage.MessageType.JOIN)
-                .roomId(roomId)
-                .senderId("SYSTEM")
-                .senderName("시스템")
-                .content(senderName + "님이 입장하였습니다.")
-                .timestamp(System.currentTimeMillis())
-                .build();
+        // ❗ 수정: 구조화된 데이터와 함께 메시지 전송
+        ChatRoom room = chatRoomService.getRoom(roomId);
+        if (room != null) {
+            Map<String, Object> roomData = Map.of(
+                "participants", room.getParticipants(),
+                "participantCount", room.getParticipants().size(),
+                "hostId", room.getHostId(),
+                "maxPlayers", room.getMaxPlayers()
+            );
 
-        messagingTemplate.convertAndSend("/topic/room." + roomId, joinMessage);
+            // ❗ 추가: 방장인지 확인하여 메시지 내용 구분
+            boolean isHost = room.getHostId().equals(senderLoginId);
+            String messageContent = isHost ? 
+                senderName + "님이 방을 생성하였습니다." : 
+                senderName + "님이 입장하였습니다.";
+
+            ChatMessage joinMessage = ChatMessage.builder()
+                    .type(ChatMessage.MessageType.USER_JOINED)
+                    .roomId(roomId)
+                    .senderId("SYSTEM")
+                    .senderName("시스템")
+                    .content(messageContent)
+                    .timestamp(System.currentTimeMillis())
+                    .data(roomData)
+                    .build();
+
+            log.info("🔔 시스템 메시지 전송: {}", joinMessage);
+            log.info("🔔 메시지 타입: {}", joinMessage.getType());
+            log.info("🔔 발신자 ID: {}", joinMessage.getSenderId());
+            log.info("🔔 메시지 내용: {}", joinMessage.getContent());
+            log.info("🔔 전송 대상: /topic/room.{}", roomId);
+            
+            messagingTemplate.convertAndSend("/topic/room." + roomId, joinMessage);
+        }
     }
 
     @MessageMapping("/room.leave")
-    public void leaveRoom(@Payload Map<String, Object> payload, Principal principal) {
-        if (principal == null) {
-            log.error("❌❌❌ 방 나가기 실패: Principal이 null입니다! ❌❌❌");
+    public void leaveRoom(@Payload Map<String, Object> payload, SimpMessageHeaderAccessor accessor) {
+        // ❗ 수정: sessionAttributes에서 사용자 정보 가져오기
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        if (sessionAttributes == null || sessionAttributes.get("user") == null) {
+            log.error("❌❌❌ 방 나가기 실패: 세션에 사용자 정보가 없습니다! ❌❌❌");
             return;
         }
+        
+        UsernamePasswordAuthenticationToken auth = (UsernamePasswordAuthenticationToken) sessionAttributes.get("user");
+        String senderLoginId = auth.getName();
 
         String roomId = (String) payload.get("roomId");
-        String senderLoginId = principal.getName();
         String senderName = chatRoomService.getParticipantName(roomId, senderLoginId);
 
         log.info("User {} leaving room: {}", senderName, roomId);
 
-        // 방 나가기 시스템 메시지
-        ChatMessage leaveMessage = ChatMessage.builder()
-                .type(ChatMessage.MessageType.LEAVE)
-                .roomId(roomId)
-                .senderId("SYSTEM")
-                .senderName("시스템")
-                .content(senderName + "님이 나갔습니다.")
-                .timestamp(System.currentTimeMillis())
-                .build();
+        // 방 나가기 처리 (방장 변경 포함)
+        boolean hostChanged = chatRoomService.leaveRoom(roomId, senderLoginId);
+        
+        // ❗ 수정: 구조화된 데이터와 함께 메시지 전송
+        ChatRoom room = chatRoomService.getRoom(roomId);
+        if (room != null) {
+            Map<String, Object> roomData = Map.of(
+                "participants", room.getParticipants(),
+                "participantCount", room.getParticipants().size(),
+                "hostId", room.getHostId(),
+                "maxPlayers", room.getMaxPlayers(),
+                "hostChanged", hostChanged
+            );
 
-        messagingTemplate.convertAndSend("/topic/room." + roomId, leaveMessage);
+            ChatMessage leaveMessage = ChatMessage.builder()
+                    .type(ChatMessage.MessageType.USER_LEFT)
+                    .roomId(roomId)
+                    .senderId("SYSTEM")
+                    .senderName("시스템")
+                    .content(senderName + "님이 나갔습니다.")
+                    .timestamp(System.currentTimeMillis())
+                    .data(roomData)
+                    .build();
+
+            messagingTemplate.convertAndSend("/topic/room." + roomId, leaveMessage);
+        }
     }
 
     @MessageMapping("/game.start")

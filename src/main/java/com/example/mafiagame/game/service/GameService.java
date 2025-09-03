@@ -1,13 +1,23 @@
 package com.example.mafiagame.game.service;
 
-import com.example.mafiagame.game.domain.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameStatus;
+import com.example.mafiagame.game.domain.PlayerRole;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
@@ -66,7 +76,16 @@ public class GameService {
         game.setIsNight(true);
         game.setNightCount(1);
         
-        log.info("게임 시작됨: {}", gameId);
+        // ❗ 추가: 시간 초기화
+        game.setPhaseStartTime(LocalDateTime.now());
+        game.setRemainingTime(game.getNightTimeLimit());
+        
+        // ❗ 추가: 플레이어별 시간 연장 사용 여부 초기화
+        for (GamePlayer player : game.getPlayers()) {
+            game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+        }
+        
+        log.info("게임 시작됨: {} (밤 시간: {}초)", gameId, game.getNightTimeLimit());
         return game;
     }
     
@@ -316,6 +335,101 @@ public class GameService {
         return games.get(gameId);
     }
     
+    /**
+     * 시간 연장/단축
+     */
+    public boolean extendTime(String gameId, String playerId, int seconds) {
+        Game game = games.get(gameId);
+        if (game == null) {
+            log.error("게임을 찾을 수 없습니다: {}", gameId);
+            return false;
+        }
+        
+        // 플레이어가 이미 시간 연장을 사용했는지 확인
+        if (game.getTimeExtensionsUsed().getOrDefault(playerId, false)) {
+            log.warn("플레이어 {}는 이미 시간 연장을 사용했습니다.", playerId);
+            return false;
+        }
+        
+        // ±15초 제한
+        if (Math.abs(seconds) > 15) {
+            log.warn("시간 연장/단축은 ±15초로 제한됩니다: {}", seconds);
+            return false;
+        }
+        
+        // 시간 연장/단축 적용
+        int newRemainingTime = game.getRemainingTime() + seconds;
+        
+        // 최소 5초, 최대 120초 제한
+        newRemainingTime = Math.max(5, Math.min(120, newRemainingTime));
+        
+        game.setRemainingTime(newRemainingTime);
+        game.getTimeExtensionsUsed().put(playerId, true);
+        
+        log.info("시간 연장/단축: 플레이어 {}가 {}초 조절 (남은 시간: {}초)", 
+                playerId, seconds, newRemainingTime);
+        
+        return true;
+    }
+    
+    /**
+     * 페이즈 전환 (밤 -> 낮, 낮 -> 밤)
+     */
+    public void switchPhase(String gameId) {
+        Game game = games.get(gameId);
+        if (game == null) return;
+        
+        if (game.isNight()) {
+            // 밤 -> 낮
+            game.setIsNight(false);
+            game.setDayCount(game.getDayCount() + 1);
+            game.setRemainingTime(game.getDayTimeLimit());
+            log.info("밤 -> 낮 전환 (낮 시간: {}초)", game.getDayTimeLimit());
+        } else {
+            // 낮 -> 밤
+            game.setIsNight(true);
+            game.setNightCount(game.getNightCount() + 1);
+            game.setRemainingTime(game.getNightTimeLimit());
+            log.info("낮 -> 밤 전환 (밤 시간: {}초)", game.getNightTimeLimit());
+        }
+        
+        // 페이즈 시작 시간 업데이트
+        game.setPhaseStartTime(LocalDateTime.now());
+        
+        // 시간 연장 사용 여부 초기화 (새 페이즈마다)
+        for (GamePlayer player : game.getPlayers()) {
+            game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+        }
+    }
+    
+    /**
+     * 남은 시간 업데이트
+     */
+    public int updateRemainingTime(String gameId) {
+        Game game = games.get(gameId);
+        if (game == null) return 0;
+        
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime phaseStart = game.getPhaseStartTime();
+        
+        if (phaseStart == null) {
+            game.setPhaseStartTime(now);
+            return game.getRemainingTime();
+        }
+        
+        // 경과 시간 계산 (초)
+        long elapsedSeconds = java.time.Duration.between(phaseStart, now).getSeconds();
+        int remaining = (int) (game.getRemainingTime() - elapsedSeconds);
+        
+        // 시간이 다 되면 0으로 설정
+        if (remaining <= 0) {
+            remaining = 0;
+        }
+        
+        game.setRemainingTime(remaining);
+        return remaining;
+    }
+
     /**
      * 게임 삭제
      */

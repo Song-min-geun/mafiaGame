@@ -83,6 +83,49 @@
                     <button id="startGameBtn" onclick="startGame()" disabled>게임 시작</button>
                     <button onclick="leaveRoom()" class="leave-room-btn" id="leaveRoomBtn" style="display: none;">방 나가기</button>
                 </div>
+                
+                <!-- ❗ 추가: 게임 타이머 UI -->
+                <div class="game-timer" id="gameTimer" style="display: none;">
+                    <div class="timer-display">
+                        <span class="timer-label" id="timerLabel">낮</span>
+                        <span class="timer-countdown" id="timerCountdown">60</span>
+                        <span class="timer-unit">초</span>
+                    </div>
+                    <div class="timer-controls">
+                        <button onclick="extendTime(-15)" id="extendTimeBtn" disabled>시간 단축 (-15초)</button>
+                        <button onclick="extendTime(15)" id="extendTimeBtn" disabled>시간 연장 (+15초)</button>
+                    </div>
+                </div>
+                
+                <!-- ❗ 추가: 투표 UI -->
+                <div class="voting-area" id="votingArea" style="display: none;">
+                    <div class="voting-header">
+                        <h3>투표</h3>
+                        <p>제거할 플레이어를 선택하세요</p>
+                    </div>
+                    <div class="voting-options" id="votingOptions">
+                        <!-- 투표 대상 플레이어들이 여기에 표시됩니다 -->
+                    </div>
+                    <div class="voting-actions">
+                        <button onclick="submitVote()" id="submitVoteBtn" disabled>투표하기</button>
+                        <button onclick="cancelVote()" id="cancelVoteBtn">취소</button>
+                    </div>
+                </div>
+                
+                <!-- ❗ 추가: 밤 액션 UI -->
+                <div class="night-action-area" id="nightActionArea" style="display: none;">
+                    <div class="night-action-header">
+                        <h3 id="nightActionTitle">밤 액션</h3>
+                        <p id="nightActionDescription">대상을 선택하세요</p>
+                    </div>
+                    <div class="night-action-options" id="nightActionOptions">
+                        <!-- 밤 액션 대상 플레이어들이 여기에 표시됩니다 -->
+                    </div>
+                    <div class="night-action-actions">
+                        <button onclick="submitNightAction()" id="submitNightActionBtn" disabled>액션 실행</button>
+                        <button onclick="cancelNightAction()" id="cancelNightActionBtn">취소</button>
+                    </div>
+                </div>
             </div>
             
             <div class="chat-area">

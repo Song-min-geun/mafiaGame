@@ -1,14 +1,24 @@
 package com.example.mafiagame.chat.controller;
 
-import com.example.mafiagame.chat.domain.ChatRoom;
-import com.example.mafiagame.chat.service.ChatRoomService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.service.ChatRoomService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestController
 @RequestMapping("/api/chat/rooms")
 @RequiredArgsConstructor
@@ -67,16 +77,43 @@ public class ChatRoomRestController {
 
     // 방 나가기
     @PostMapping("/{roomId}/leave")
-    public ResponseEntity<Map<String, Object>> leaveRoom(@PathVariable String roomId, 
+    public ResponseEntity<Map<String, Object>> leaveRoom(@PathVariable String roomId,
                                                        @RequestBody Map<String, String> request) {
+        log.info("🔍 방 나가기 API 호출: roomId={}, request={}", roomId, request);
+        
         String userId = request.get("userId");
+        log.info("🔍 추출된 userId: {}", userId);
+        
+        if (userId == null || userId.isEmpty()) {
+            log.error("❌ userId가 null이거나 비어있습니다.");
+            return ResponseEntity.badRequest().body(Map.of("error", "userId가 필요합니다."));
+        }
 
         boolean success = chatRoomService.leaveRoom(roomId, userId);
+        log.info("🔍 방 나가기 결과: {}", success);
         
         if (success) {
             return ResponseEntity.ok(Map.of("message", "방 나가기 성공"));
         } else {
             return ResponseEntity.badRequest().body(Map.of("error", "방 나가기 실패"));
+        }
+    }
+
+    // 방장 위임
+    @PostMapping("/{roomId}/transfer-host")
+    public ResponseEntity<Map<String, Object>> transferHost(@PathVariable String roomId,
+                                                           @RequestBody Map<String, String> request) {
+        String currentHostId = request.get("currentHostId");
+        String newHostId = request.get("newHostId");
+        
+        log.info("🔍 방장 위임 요청: roomId={}, currentHostId={}, newHostId={}", roomId, currentHostId, newHostId);
+        
+        boolean success = chatRoomService.transferHost(roomId, currentHostId, newHostId);
+        
+        if (success) {
+            return ResponseEntity.ok(Map.of("message", "방장 위임 성공"));
+        } else {
+            return ResponseEntity.badRequest().body(Map.of("error", "방장 위임 실패"));
         }
     }
 

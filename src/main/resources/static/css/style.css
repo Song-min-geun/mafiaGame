@@ -213,6 +213,174 @@ body {
     visibility: hidden;
 }
 
+/* ❗ 추가: 게임 타이머 스타일 */
+.game-timer {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    padding: 15px;
+    margin: 10px 0;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.timer-display {
+    margin-bottom: 10px;
+}
+
+.timer-label {
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    margin-right: 10px;
+}
+
+.timer-countdown {
+    font-size: 32px;
+    font-weight: bold;
+    color: #ffeb3b;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    margin: 0 5px;
+}
+
+.timer-unit {
+    font-size: 16px;
+    color: white;
+    margin-left: 5px;
+}
+
+.timer-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.timer-controls button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid white;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.timer-controls button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.timer-controls button:disabled {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+}
+
+/* 타이머 경고 상태 (10초 이하) */
+.timer-countdown.warning {
+    color: #ff5722;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+/* ❗ 추가: 투표 UI 스타일 */
+.voting-area, .night-action-area {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+    border-radius: 10px;
+    padding: 20px;
+    margin: 10px 0;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.voting-header, .night-action-header {
+    margin-bottom: 15px;
+}
+
+.voting-header h3, .night-action-header h3 {
+    color: white;
+    margin: 0 0 5px 0;
+    font-size: 20px;
+}
+
+.voting-header p, .night-action-header p {
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0;
+    font-size: 14px;
+}
+
+.voting-options, .night-action-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.voting-option, .night-action-option {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: white;
+    font-weight: bold;
+}
+
+.voting-option:hover, .night-action-option:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.voting-option.selected, .night-action-option.selected {
+    background: rgba(255, 255, 255, 0.4);
+    border-color: #ffeb3b;
+    box-shadow: 0 0 10px rgba(255, 235, 59, 0.5);
+}
+
+.voting-option.dead, .night-action-option.dead {
+    background: rgba(0, 0, 0, 0.3);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+    text-decoration: line-through;
+}
+
+.voting-actions, .night-action-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.voting-actions button, .night-action-actions button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid white;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+.voting-actions button:hover:not(:disabled), .night-action-actions button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.voting-actions button:disabled, .night-action-actions button:disabled {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+}
+
 /* ❗ 추가: 비밀번호 확인 상태 아이콘 */
 .password-match-status.match::before {
     content: "✓ ";
@@ -383,6 +551,13 @@ body {
 .game-controls button:disabled {
     background: #95a5a6;
     cursor: not-allowed;
+    opacity: 0.6;
+    color: #7f8c8d;
+}
+
+.game-controls button:disabled:hover {
+    background: #95a5a6;
+    transform: none;
 }
 
 
