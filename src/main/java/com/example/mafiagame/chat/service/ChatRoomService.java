@@ -1,6 +1,7 @@
 package com.example.mafiagame.chat.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -11,6 +12,9 @@ import org.springframework.stereotype.Service;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
+import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameStatus;
 import com.example.mafiagame.user.service.UserService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +45,11 @@ public class ChatRoomService {
                 .maxPlayers(8)
                 .participants(new ArrayList<>())
                 .isGameActive(false)
+                .currentGameId(null)
+                .gameHistoryIds(new ArrayList<>())
                 .build();
+        
+        room.setCreatedAt();  // 생성 시간 설정
         chatRooms.put(roomId, room);
         
         // 방장을 자동으로 방에 입장시킴 (직접 추가)
@@ -58,6 +66,7 @@ public class ChatRoomService {
         
         ChatUser host = ChatUser.builder()
                 .userId(userId)
+                .roomId(roomId)
                 .userName(hostName)
                 .isHost(true)  // 방장은 항상 true
                 .build();
@@ -114,6 +123,7 @@ public class ChatRoomService {
         // 참가자 추가 (방장 여부는 room.getHostId()와 userId 비교로 결정)
         ChatUser participant = ChatUser.builder()
                 .userId(userId)
+                .roomId(roomId)
                 .userName(userName)
                 .isHost(room.getHostId().equals(userId))  // 방장 여부 설정
                 .build();
@@ -143,9 +153,42 @@ public class ChatRoomService {
 
     // 방 나가기
     public boolean leaveRoom(String roomId, String userId) {
+        log.info("🔍 leaveRoom 호출: roomId={}, userId={}", roomId, userId);
+        
         ChatRoom room = chatRooms.get(roomId);
+        log.info("🔍 방 조회 결과: {}", room != null ? "존재함" : "없음");
+        
         if (room == null) {
+            log.error("❌ 방이 존재하지 않습니다: {}", roomId);
             return false;
+        }
+        
+        log.info("🔍 방 정보: hostId={}, participants={}", room.getHostId(), room.getParticipants());
+
+        // 방장이 나가는 경우 새로운 방장 설정
+        boolean wasHost = room.getHostId().equals(userId);
+        boolean hostChanged = false;
+        
+        if (wasHost && room.getParticipants().size() > 1) {
+            // ❗ 수정: 참가자 목록 순서를 활용한 간단한 방장 위임
+            // 현재 방장을 제외한 나머지 참가자 중 첫 번째 사람이 새 방장
+            String newHostId = room.getParticipants().stream()
+                    .filter(p -> !p.getUserId().equals(userId))  // 현재 방장 제외
+                    .findFirst()  // 첫 번째 참가자
+                    .map(participant -> participant.getUserId())
+                    .orElse(null);
+            
+            if (newHostId != null) {
+                room.setHostId(newHostId);
+                
+                // 새 방장의 isHost 플래그 업데이트
+                room.getParticipants().forEach(participant -> {
+                    participant.setHost(participant.getUserId().equals(newHostId));
+                });
+                
+                hostChanged = true;
+                log.info("방장 변경 (참가자 순서 기준): {} -> {}", userId, newHostId);
+            }
         }
 
         room.removeParticipant(userId);
@@ -156,6 +199,43 @@ public class ChatRoomService {
             deleteRoom(roomId);
         }
 
+        return hostChanged;
+    }
+
+    // 방장 위임
+    public boolean transferHost(String roomId, String currentHostId, String newHostId) {
+        log.info("🔍 transferHost 호출: roomId={}, currentHostId={}, newHostId={}", roomId, currentHostId, newHostId);
+        
+        ChatRoom room = chatRooms.get(roomId);
+        if (room == null) {
+            log.error("❌ 방이 존재하지 않습니다: {}", roomId);
+            return false;
+        }
+        
+        // 현재 방장 확인
+        if (!room.getHostId().equals(currentHostId)) {
+            log.error("❌ 현재 방장이 아닙니다: {}", currentHostId);
+            return false;
+        }
+        
+        // 새 방장이 방에 있는지 확인
+        boolean newHostExists = room.getParticipants().stream()
+                .anyMatch(p -> p.getUserId().equals(newHostId));
+        
+        if (!newHostExists) {
+            log.error("❌ 새 방장이 방에 없습니다: {}", newHostId);
+            return false;
+        }
+        
+        // 방장 변경
+        room.setHostId(newHostId);
+        
+        // 모든 참가자의 isHost 플래그 업데이트
+        room.getParticipants().forEach(participant -> {
+            participant.setHost(participant.getUserId().equals(newHostId));
+        });
+        
+        log.info("✅ 방장 위임 성공: {} -> {}", currentHostId, newHostId);
         return true;
     }
 
@@ -166,8 +246,48 @@ public class ChatRoomService {
             return false;
         }
 
-        room.startGame();
+        // Game 객체 생성
+        Game game = createGameFromRoom(room);
+        
+        // ChatRoom에 Game ID 연결
+        room.startGame(game.getGameId());
+        
+        log.info("게임 시작: {} (게임 ID: {})", roomId, game.getGameId());
         return true;
+    }
+
+    // ChatRoom 참가자들을 GamePlayer로 변환하여 Game 생성
+    private Game createGameFromRoom(ChatRoom room) {
+        String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
+        
+        // ChatUser를 GamePlayer로 변환
+        List<GamePlayer> gamePlayers = room.getParticipants().stream()
+                .map(chatUser -> GamePlayer.builder()
+                        .playerId(chatUser.getUserId())
+                        .playerName(chatUser.getUserName())
+                        .isHost(chatUser.isHost())
+                        .isAlive(true)
+                        .isReady(false)
+                        .voteCount(0)
+                        .build())
+                .collect(Collectors.toList());
+
+        return Game.builder()
+                .gameId(gameId)
+                .roomId(room.getRoomId())
+                .status(GameStatus.WAITING)
+                .players(gamePlayers)
+                .currentPhase(0)
+                .isNight(false)
+                .nightCount(0)
+                .dayCount(0)
+                .votes(new HashMap<>())
+                .nightActions(new HashMap<>())
+                .startTime(java.time.LocalDateTime.now())
+                .maxPlayers(room.getMaxPlayers())
+                .hasDoctor(gamePlayers.size() >= 6)  // 6명 이상일 때 의사 포함
+                .hasPolice(gamePlayers.size() >= 8)  // 8명 이상일 때 경찰 포함
+                .build();
     }
 
     // 게임 종료

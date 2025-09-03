@@ -42,7 +42,6 @@ public class UserController {
         return ResponseEntity.status(HttpStatus.CREATED).body(CommonResponse.success(null, "회원가입에 성공했습니다."));
     }
 
-
     @PostMapping("/login")
     public ResponseEntity<CommonResponse<Map<String, String>>> login(@Valid @RequestBody LoginRequest requestDto) {
         String token = userService.login(requestDto);
