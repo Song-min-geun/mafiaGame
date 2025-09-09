@@ -39,17 +39,14 @@ public class Game {
     @Builder.Default
     private int currentPhase = 0;             // 현재 페이즈 (1, 2, 3...)
     
-    @Column(name = "is_night", nullable = false)
+    @Column(name = "is_day", nullable = false)
     @Builder.Default
-    private boolean isNight = false;          // 밤/낮 구분
+    private boolean isDay = true;             // 낮/밤 구분 (낮이 기본값)
     
-    @Column(name = "night_count", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "game_phase", nullable = false)
     @Builder.Default
-    private int nightCount = 0;               // 밤 카운트
-    
-    @Column(name = "day_count", nullable = false)
-    @Builder.Default
-    private int dayCount = 0;                 // 낮 카운트
+    private GamePhase gamePhase = GamePhase.DAY_DISCUSSION; // 게임 페이즈 (대화/투표/반론/찬반/밤)
     
     @Column(name = "winner")
     private String winner;                    // 승리 팀 ("CITIZEN" or "MAFIA")
@@ -70,8 +67,7 @@ public class Game {
     @Column(name = "has_police", nullable = false)
     @Builder.Default
     private boolean hasPolice = false;        // 경찰 포함 여부
-    
-    // JPA에서 제외하고 서비스에서 관리
+
     @Transient
     private List<GamePlayer> players;         // 플레이어 목록
     
@@ -82,6 +78,10 @@ public class Game {
     @Transient
     @Builder.Default
     private Map<String, String> nightActions = new HashMap<>(); // 밤 액션 결과 (액션자 -> 대상)
+    
+    @Transient
+    @Builder.Default
+    private Map<String, String> finalVotes = new HashMap<>();   // 최종 투표 결과 (투표자 -> 찬성/반대)
     
     // ❗ 추가: 게임 시간 관련 필드들
     @Transient
@@ -103,9 +103,20 @@ public class Game {
     @Builder.Default
     private Map<String, Boolean> timeExtensionsUsed = new HashMap<>(); // 플레이어별 시간 연장 사용 여부
     
+    @Transient
+    @Builder.Default
+    private Map<String, Boolean> votingTimeExtensionsUsed = new HashMap<>(); // 투표 페이즈별 시간 연장 사용 여부
+    
+    @Transient
+    private String votedPlayerId;                // 최다 득표자 ID (최후 변론용)
+    
     // 수동 setter 메서드들
-    public void setIsNight(boolean isNight) {
-        this.isNight = isNight;
+    public void setIsDay(boolean isDay) {
+        this.isDay = isDay;
+    }
+    
+    public void setGamePhase(GamePhase gamePhase) {
+        this.gamePhase = gamePhase;
     }
     
     public void setHasDoctor(boolean hasDoctor) {

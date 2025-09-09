@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
 import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameStatus;
 import com.example.mafiagame.user.service.UserService;
@@ -28,6 +30,9 @@ public class ChatRoomService {
     
     // 사용자별 현재 방 매핑
     private final Map<String, String> userRoomMap = new ConcurrentHashMap<>();
+    
+    // WebSocket 연결 상태 추적
+    private final Set<String> connectedUsers = ConcurrentHashMap.newKeySet();
     private final UserService userService;
 
     public ChatRoomService(UserService userService) {
@@ -108,10 +113,18 @@ public class ChatRoomService {
             leaveRoom(currentRoomId, userId);
         }
 
-        // 이미 해당 방에 있는지 확인
+        // 이미 해당 방에 있는지 확인 (WebSocket 연결 상태도 고려)
         if (room.isUserInRoom(userId)) {
-            log.warn("이미 방에 있음: {}", userId);
-            return false;
+            // WebSocket 연결이 활성화되어 있는지 확인
+            if (isUserWebSocketConnected(userId)) {
+                log.warn("이미 방에 있고 WebSocket 연결됨: {}", userId);
+                return false;
+            } else {
+                log.info("방에 있지만 WebSocket 연결 끊어짐 - 재입장 허용: {}", userId);
+                // 기존 사용자를 제거하고 재입장 허용
+                room.removeParticipant(userId);
+                userRoomMap.remove(userId);
+            }
         }
 
         // 방이 가득 찼는지 확인
@@ -135,6 +148,29 @@ public class ChatRoomService {
         
         log.info("방 입장 성공: {}", roomId);
         return true;
+    }
+    
+    /**
+     * WebSocket 연결 상태 확인
+     */
+    private boolean isUserWebSocketConnected(String userId) {
+        return connectedUsers.contains(userId);
+    }
+    
+    /**
+     * WebSocket 연결 등록
+     */
+    public void registerWebSocketConnection(String userId) {
+        connectedUsers.add(userId);
+        log.info("WebSocket 연결 등록: {}", userId);
+    }
+    
+    /**
+     * WebSocket 연결 해제
+     */
+    public void unregisterWebSocketConnection(String userId) {
+        connectedUsers.remove(userId);
+        log.info("WebSocket 연결 해제: {}", userId);
     }
 
 
@@ -278,9 +314,8 @@ public class ChatRoomService {
                 .status(GameStatus.WAITING)
                 .players(gamePlayers)
                 .currentPhase(0)
-                .isNight(false)
-                .nightCount(0)
-                .dayCount(0)
+                .isDay(true)
+                .gamePhase(GamePhase.DAY_DISCUSSION)
                 .votes(new HashMap<>())
                 .nightActions(new HashMap<>())
                 .startTime(java.time.LocalDateTime.now())

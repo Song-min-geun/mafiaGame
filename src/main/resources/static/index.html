@@ -12,7 +12,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="header-user-info">
+            <div class="header-user-info" >
                 <h1>마피아 게임</h1>
             </div>
             <div class="header-user-info" id="headerUserInfo" style="display: none;">
@@ -92,16 +92,27 @@
                         <span class="timer-unit">초</span>
                     </div>
                     <div class="timer-controls">
-                        <button onclick="extendTime(-15)" id="extendTimeBtn" disabled>시간 단축 (-15초)</button>
+                        <button onclick="extendTime(-15)" id="reduceTimeBtn" disabled>시간 단축 (-15초)</button>
                         <button onclick="extendTime(15)" id="extendTimeBtn" disabled>시간 연장 (+15초)</button>
                     </div>
                 </div>
                 
-                <!-- ❗ 추가: 투표 UI -->
+            </div>
+            
+            <div class="chat-area">
+                <!-- ❗ 추가: 최다 득표자 안내 UI -->
+                <div class="voted-player-info" id="votedPlayerInfo" style="display: none;">
+                    <div class="voted-player-header">
+                        <h3>최다 득표자</h3>
+                        <p id="votedPlayerDescription">당신은 최다 득표자입니다. 다른 플레이어들의 투표를 기다려주세요.</p>
+                    </div>
+                </div>
+                
+                <!-- ❗ 추가: 투표 UI (채팅 영역 내부) -->
                 <div class="voting-area" id="votingArea" style="display: none;">
                     <div class="voting-header">
                         <h3>투표</h3>
-                        <p>제거할 플레이어를 선택하세요</p>
+                        <p id="votingDescription">제거할 플레이어를 선택하세요</p>
                     </div>
                     <div class="voting-options" id="votingOptions">
                         <!-- 투표 대상 플레이어들이 여기에 표시됩니다 -->
@@ -112,7 +123,7 @@
                     </div>
                 </div>
                 
-                <!-- ❗ 추가: 밤 액션 UI -->
+                <!-- ❗ 추가: 밤 액션 UI (채팅 영역 내부) -->
                 <div class="night-action-area" id="nightActionArea" style="display: none;">
                     <div class="night-action-header">
                         <h3 id="nightActionTitle">밤 액션</h3>
@@ -126,9 +137,7 @@
                         <button onclick="cancelNightAction()" id="cancelNightActionBtn">취소</button>
                     </div>
                 </div>
-            </div>
-            
-            <div class="chat-area">
+                
                 <div class="chat-messages" id="chatMessages">
                     <!-- 채팅 메시지가 여기에 표시됩니다 -->
                 </div>
