@@ -3,16 +3,22 @@ package com.example.mafiagame.chat.controller;
 import java.security.Principal;
 import java.util.Map;
 
+import org.springframework.context.event.EventListener;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Controller;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.ChatMessage;
 import com.example.mafiagame.chat.service.ChatRoomService;
+import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.service.GameService;
+import com.example.mafiagame.game.service.GameTimerService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +30,8 @@ public class ChatController {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatRoomService chatRoomService;
+    private final GameService gameService;
+    private final GameTimerService gameTimerService;
 
     @MessageMapping("/chat.sendMessage")
     public void sendMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor) {
@@ -47,6 +55,12 @@ public class ChatController {
 
         log.info("메시지 방송 시작 - 방: {}, 발신자: {}", chatMessage.getRoomId(), senderLoginId);
 
+        // 게임 상태에 따른 채팅 제한 확인
+        if (!canPlayerChat(chatMessage.getRoomId(), senderLoginId)) {
+            log.warn("플레이어의 채팅 시도 차단: {}", senderLoginId);
+            return;
+        }
+        
         // ❗ 핵심: 이제 메시지를 해당 방의 공용 토픽으로 방송합니다.
         messagingTemplate.convertAndSend("/topic/room." + chatMessage.getRoomId(), chatMessage);
     }
@@ -68,6 +82,9 @@ public class ChatController {
 
         log.info("senderLoginId: {}, senderName: {}", senderLoginId, senderName);
         log.info("User {} joining room: {}", senderName, roomId);
+        
+        // WebSocket 연결 상태 등록
+        chatRoomService.registerWebSocketConnection(senderLoginId);
 
         // ❗ 수정: 구조화된 데이터와 함께 메시지 전송
         ChatRoom room = chatRoomService.getRoom(roomId);
@@ -182,5 +199,91 @@ public class ChatController {
                 .build();
 
         messagingTemplate.convertAndSend("/topic/room." + roomId, gameEndMessage);
+    }
+    
+    /**
+     * WebSocket 연결 해제 이벤트 처리
+     */
+    @EventListener
+    public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        Map<String, Object> sessionAttributes = headerAccessor.getSessionAttributes();
+        
+        if (sessionAttributes != null && sessionAttributes.get("user") != null) {
+            UsernamePasswordAuthenticationToken auth = (UsernamePasswordAuthenticationToken) sessionAttributes.get("user");
+            String userId = auth.getName();
+            
+            // WebSocket 연결 상태 해제
+            chatRoomService.unregisterWebSocketConnection(userId);
+            log.info("WebSocket 연결 해제됨: {}", userId);
+        }
+    }
+    
+    /**
+     * 플레이어가 채팅할 수 있는지 확인
+     */
+    private boolean canPlayerChat(String roomId, String playerId) {
+        try {
+            // 게임이 진행 중인지 확인
+            Game game = gameService.getGameByRoomId(roomId);
+            if (game == null) {
+                log.info("🔍 채팅 권한 확인: 게임이 없음 - 채팅 허용. roomId={}, playerId={}", roomId, playerId);
+                return true; // 게임이 없으면 채팅 허용
+            }
+            
+            log.info("🔍 채팅 권한 확인: 게임 존재. gameId={}, gamePhase={}, playerId={}", 
+                    game.getGameId(), game.getGamePhase(), playerId);
+            
+            // 죽은 플레이어는 채팅 불가
+            if (gameService.isPlayerInDeadChatRoom(roomId, playerId)) {
+                log.info("🔍 채팅 권한 확인: 죽은 플레이어 - 채팅 차단. playerId={}", playerId);
+                return false;
+            }
+            
+            // 최종 변론 페이즈에서는 투표 결과 플레이어만 채팅 가능
+            if (game.getGamePhase() != null && game.getGamePhase().name().equals("DAY_FINAL_DEFENSE")) {
+                String votedPlayerId = gameService.getVotedPlayerId(game.getGameId());
+                log.info("🔍 채팅 권한 확인: 최종 변론 페이즈. votedPlayerId={}, currentPlayerId={}", 
+                        votedPlayerId, playerId);
+                
+                if (votedPlayerId != null && !votedPlayerId.equals(playerId)) {
+                    log.info("🚫 최종 변론 페이즈: 투표 결과 플레이어만 채팅 가능. 현재 플레이어: {}, 투표 결과 플레이어: {}", 
+                            playerId, votedPlayerId);
+                    return false;
+                } else if (votedPlayerId != null && votedPlayerId.equals(playerId)) {
+                    log.info("✅ 최종 변론 페이즈: 최다 득표자 - 채팅 허용. playerId={}", playerId);
+                    return true;
+                } else {
+                    log.warn("⚠️ 최종 변론 페이즈: votedPlayerId가 null. playerId={}", playerId);
+                    return false; // votedPlayerId가 null이면 채팅 차단
+                }
+            }
+            
+            log.info("🔍 채팅 권한 확인: 일반 페이즈 - 채팅 허용. gamePhase={}, playerId={}", 
+                    game.getGamePhase(), playerId);
+            return true;
+        } catch (Exception e) {
+            log.error("❌ 플레이어 채팅 권한 확인 중 오류 발생: {}", e.getMessage(), e);
+            return true; // 오류 시 채팅 허용
+        }
+    }
+    
+    /**
+     * 플레이어가 죽었는지 확인 (기존 메서드 유지)
+     */
+    private boolean isPlayerDead(String roomId, String playerId) {
+        try {
+            // 게임이 진행 중인지 확인
+            Game game = gameService.getGameByRoomId(roomId);
+            if (game == null) {
+                return false; // 게임이 없으면 채팅 허용
+            }
+            
+            // 플레이어가 죽은 플레이어 채팅방에 있는지 확인
+            return gameTimerService.isPlayerInDeadChatRoom(roomId, playerId);
+        } catch (Exception e) {
+            log.error("플레이어 생존 상태 확인 실패: roomId={}, playerId={}", roomId, playerId, e);
+            return false; // 오류 시 채팅 허용
+        }
     }
 }

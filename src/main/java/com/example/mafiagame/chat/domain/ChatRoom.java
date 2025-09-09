@@ -9,16 +9,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @Entity
 @Table(name = "chat_rooms")
 @Data
 @Builder
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 public class ChatRoom {
     @Id
@@ -45,8 +42,7 @@ public class ChatRoom {
     
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
-    // JPA에서 제외하고 서비스에서 관리
+
     @Transient
     private List<ChatUser> participants;
     
