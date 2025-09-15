@@ -32,7 +32,6 @@ public class ChatRoomRestController {
         String roomName = (String) request.get("roomName");
         String userId = (String) request.get("userId");
 
-
         ChatRoom room = chatRoomService.createRoom(roomName, userId);
         return ResponseEntity.ok(room);
     }

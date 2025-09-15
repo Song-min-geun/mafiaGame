@@ -156,33 +156,14 @@ public class GameTimerService {
             return false;
         }
         
-        // 투표 페이즈에서는 페이즈별 기회 확인
-        if (game.getGamePhase() == GamePhase.DAY_VOTING) {
-            String key = game.getCurrentPhase() + "_" + playerId;
-            if (game.getVotingTimeExtensionsUsed().getOrDefault(key, false)) {
-                log.warn("플레이어 {}는 이 투표 페이즈에서 이미 시간 연장을 사용했습니다: {}", playerId, gameId);
-                return false;
-            }
-        } else {
-            // 다른 페이즈에서는 전체 게임 기회 확인
-            if (game.getTimeExtensionsUsed().getOrDefault(playerId, false)) {
-                log.warn("플레이어 {}는 이미 시간 연장을 사용했습니다: {}", playerId, gameId);
-                return false;
-            }
-        }
+        // 클라이언트에서 이미 버튼 비활성화로 처리되므로 서버 체크 불필요
         
         // 시간 조절 (최소 0초, 최대 300초)
         int newRemainingTime = Math.max(0, Math.min(300, game.getRemainingTime() + seconds));
         game.setRemainingTime(newRemainingTime);
         
-        // 플레이어 시간 연장 사용 표시
-        if (game.getGamePhase() == GamePhase.DAY_VOTING) {
-            String key = game.getCurrentPhase() + "_" + playerId;
-            game.getVotingTimeExtensionsUsed().put(key, true);
-        } else {
-            game.getTimeExtensionsUsed().put(playerId, true);
-        }
-        
+        // 클라이언트에서 버튼 비활성화로 처리되므로 서버 상태 저장 불필요
+
         // 클라이언트에 시간 연장 메시지 전송
         sendTimeExtendedMessage(game, playerId, seconds);
         
@@ -260,6 +241,7 @@ public class GameTimerService {
                 game.setGamePhase(GamePhase.DAY_DISCUSSION);
                 game.setIsDay(true);  // 낮으로 전환
                 game.setRemainingTime(60);  // 낮 대화 60초
+                game.getTimeExtensionsUsed();
                 log.info("밤 액션 → {}일째 낮 대화 전환 (60초)", game.getCurrentPhase());
                 break;
         }
@@ -361,7 +343,7 @@ public class GameTimerService {
     private void resetVotingTimeExtensions(Game game) {
         if (game.getPlayers() != null) {
             for (GamePlayer player : game.getPlayers()) {
-                String key = game.getCurrentPhase() + "_" + player.getPlayerId();
+                String key = player.getPlayerId();
                 game.getVotingTimeExtensionsUsed().put(key, false);
             }
             log.info("투표 페이즈 {} 시간 연장 기회 초기화 완료", game.getCurrentPhase());
@@ -668,14 +650,10 @@ public class GameTimerService {
     private void sendTimeExtendedMessage(Game game, String playerId, int seconds) {
         try {
             // 플레이어 닉네임 찾기
-            String playerName = game.getPlayers().stream()
-                .filter(player -> player.getPlayerId().equals(playerId))
-                .map(player -> player.getPlayerName())
-                .findFirst()
-                .orElse("알 수 없는 플레이어");
+            String playerName = findPlayerControllerTimer(game,playerId);
             
             // 시간 증가/감소에 따라 메시지 타입 결정
-            String messageType = seconds > 0 ? "TIME_EXTENDED" : "TIME_REDUCED";
+            String messageType = isExtendTime(seconds);
             
             Map<String, Object> message = new HashMap<>();
             message.put("type", messageType);
@@ -691,6 +669,18 @@ public class GameTimerService {
         } catch (Exception e) {
             log.error("시간 연장 메시지 전송 실패: {}", game.getGameId(), e);
         }
+    }
+
+    public String findPlayerControllerTimer(Game game, String playerId){
+        return game.getPlayers().stream()
+                .filter(player ->player.getPlayerId().equals(playerId))
+                .map(GamePlayer::getPlayerName)
+                .findFirst()
+                .orElse("등록되지 않은 사용자입니다.");
+    }
+
+    public String isExtendTime(int seconds){
+        return seconds > 0 ? "TIME_EXTEND" : "TIME_REDUCE";
     }
     
     /**
