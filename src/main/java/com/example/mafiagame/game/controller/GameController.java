@@ -505,7 +505,6 @@ public class GameController {
             case DOCTOR -> "의사 - 밤마다 한 명을 선택하여 마피아의 공격을 막을 수 있습니다.";
             case POLICE -> "경찰 - 밤마다 한 명을 선택하여 마피아인지 시민인지 알 수 있습니다.";
             case CITIZEN -> "시민 - 낮에 투표로 마피아를 찾아내야 합니다.";
-            default -> "알 수 없는 역할";
         };
     }
     
