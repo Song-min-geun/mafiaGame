@@ -382,7 +382,7 @@ function subscribeToRoom(roomId) {
     
     const destination = `/topic/room.${roomId}`;
     
-    // 개인 메시지 구독 추가
+    // 개인 메시지 구독 추가 - 역할별 조건부 구독
     stompClient.subscribe('/user/queue/night-action', function(message) {
         const actionMessage = JSON.parse(message.body);
         if (actionMessage.gameId === currentGameId) {
@@ -390,18 +390,7 @@ function subscribeToRoom(roomId) {
         }
     });
     
-    stompClient.subscribe('/user/queue/police', function(message) {
-        const investigationMessage = JSON.parse(message.body);
-        if (investigationMessage.gameId === currentGameId) {
-            const systemMessage = {
-                type: 'SYSTEM',
-                senderId: 'SYSTEM',
-                content: `🔍 조사 결과: ${investigationMessage.isMafia ? '마피아입니다!' : '시민입니다.'}`,
-                timestamp: investigationMessage.timestamp
-            };
-            addMessage(systemMessage, 'system');
-        }
-    });
+    // 역할별 구독은 게임 시작 후 setupRoleBasedSubscriptions()에서 설정
     
     currentRoomSubscription = stompClient.subscribe(destination, (message) => {
         const chatMessage = JSON.parse(message.body);
@@ -449,6 +438,9 @@ function subscribeToRoom(roomId) {
                 // 게임 시작 상태 업데이트
                 isGameStarted = true;
                 currentGameId = chatMessage.gameId;
+                
+                // 게임 시작 후 역할별 개인 메시지 구독 설정
+                setupRoleBasedSubscriptions();
                 
                 // ❗ 추가: currentGame 초기화
                 currentGame = {
@@ -675,10 +667,20 @@ function subscribeToRoom(roomId) {
                     // 투표 페이즈인 경우 추가 로그
                     if (chatMessage.gamePhase === 'DAY_VOTING' || chatMessage.gamePhase === 'DAY_FINAL_VOTE') {
                         
-                        // 투표 페이즈로 전환 시 시간 연장 기회 초기화
-                        if (chatMessage.gamePhase === 'DAY_VOTING') {
-                            timeExtensionUsed = false;
-                        }
+                    // 투표 페이즈로 전환 시 시간 연장 기회 초기화
+                    if (chatMessage.gamePhase === 'DAY_VOTING') {
+                        timeExtensionUsed = false;
+                    }
+                    
+                    // 낮 대화 페이즈로 전환 시 시간 연장 기회 초기화
+                    if (chatMessage.gamePhase === 'DAY_DISCUSSION') {
+                        timeExtensionUsed = false;
+                        // 시간 연장/단축 버튼 활성화
+                        const extendBtn = document.getElementById('extendTimeBtn');
+                        const reduceBtn = document.getElementById('reduceTimeBtn');
+                        if (extendBtn) extendBtn.disabled = false;
+                        if (reduceBtn) reduceBtn.disabled = false;
+                    }
                         
                         // 강제로 투표 UI 표시 시도
                         setTimeout(() => {
@@ -1108,6 +1110,32 @@ async function extendTime(seconds) {
     } catch (error) {
         console.error('시간 연장/단축 실패:', error);
         alert('시간 연장/단축에 실패했습니다.');
+    }
+}
+
+// ❗ 추가: 역할별 개인 메시지 구독 설정
+function setupRoleBasedSubscriptions() {
+    if (!stompClient || !currentGame) {
+        return;
+    }
+    
+    // 현재 플레이어의 역할 확인
+    const currentPlayer = currentGame.players ? 
+        currentGame.players.find(p => p.playerId === currentUser.userLoginId) : null;
+    
+    if (!currentPlayer) {
+        return;
+    }
+    
+    // 경찰 역할인 경우에만 경찰 메시지 구독
+    if (currentPlayer.role === 'POLICE') {
+        stompClient.subscribe('/user/queue/police', function(message) {
+            const investigationMessage = JSON.parse(message.body);
+            if (investigationMessage.gameId === currentGameId) {
+                addMessage(investigationMessage, 'system');
+            }
+        });
+        console.log('경찰 역할로 경찰 메시지 구독 설정됨');
     }
 }
 

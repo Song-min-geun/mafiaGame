@@ -28,7 +28,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class GameService {
-    
+
+
     private final Map<String, Game> games = new ConcurrentHashMap<>();
     
     // 죽은 플레이어들의 채팅방 (roomId -> Set<playerId>)
@@ -181,11 +182,13 @@ public class GameService {
         sendNightActionResult(game, player, targetId);
         
         // 경찰인 경우 조사 결과 즉시 전송
-        if (player.getRole() == PlayerRole.POLICE) {
+        if (isPolice(player)) {
             GamePlayer target = findPlayer(game, targetId);
-            if (target != null && target.isAlive()) {
-                sendPoliceInvestigationResult(game, player.getPlayerId(), target.getRole());
+            if (target == null) {
+                log.warn("조사 대상 플레이어를 찾을 수 없습니다: {}", targetId);
+                return;
             }
+            sendPoliceInvestigationResult(game, playerId, target);
         }
         
         log.info("밤 액션 저장: {} ({}) -> {}", player.getPlayerName(), player.getRole(), targetId);
@@ -198,15 +201,17 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) return;
         
-        Map<String, String> nightActions = game.getNightActions();
+        Map<String, String> nightActions = game.getNightActions(); //processNightAction -> (gameId, playerId, targetId)
         List<GamePlayer> players = game.getPlayers();
+
+        for(GamePlayer player : players){
+
+        }
         
         // 마피아의 타겟
         String mafiaTarget = null;
         // 의사의 타겟
         String doctorTarget = null;
-        // 경찰의 타겟
-        String policeTarget = null;
         
         // 각 역할별 액션 수집
         for (GamePlayer player : players) {
@@ -221,9 +226,6 @@ public class GameService {
                     break;
                 case DOCTOR:
                     doctorTarget = targetId;
-                    break;
-                case POLICE:
-                    policeTarget = targetId;
                     break;
                 case CITIZEN:
                     // 시민은 밤 액션이 없음
@@ -247,8 +249,6 @@ public class GameService {
                 }
             }
         }
-        
-        // 경찰 조사 결과는 이미 processNightAction에서 처리됨
         
         // 밤 결과 메시지 전송
         sendNightResultMessage(game, mafiaTarget, doctorTarget);
@@ -297,7 +297,7 @@ public class GameService {
                     break;
             }
             
-            // 해당 플레이어에게만 개인 메시지 전송
+            // 해당 플레이어에게만 전송 (개인 메시지) - queue로 전송
             messagingTemplate.convertAndSendToUser(player.getPlayerId(), "/queue/night-action", actionMessage);
             
             log.info("밤 액션 결과 메시지 전송: {} -> {}", player.getPlayerName(), target.getPlayerName());
@@ -351,23 +351,21 @@ public class GameService {
     /**
      * 경찰 조사 결과 전송
      */
-    private void sendPoliceInvestigationResult(Game game, String policePlayerId, PlayerRole targetRole) {
+    private void sendPoliceInvestigationResult(Game game, String policePlayerId, GamePlayer target) {
         try {
             // 경찰에게만 전송할 개인 메시지
             Map<String, Object> investigationMessage = new HashMap<>();
-            investigationMessage.put("type", "SYSTEM");
+            investigationMessage.put("type", "POLICE_INVESTIGATION_RESULT");
             investigationMessage.put("gameId", game.getGameId());
             investigationMessage.put("roomId", game.getRoomId());
-            investigationMessage.put("targetRole", targetRole.name());
-            investigationMessage.put("isMafia", targetRole == PlayerRole.MAFIA);
             investigationMessage.put("senderId", "SYSTEM");
-            investigationMessage.put("senderName", "시스템");
+            investigationMessage.put("content", String.format("🔍 조사 결과: %s는 %s",target, target.getRole() == PlayerRole.MAFIA ? "마피아입니다!" : "시민입니다."));
             investigationMessage.put("timestamp", java.time.LocalDateTime.now().toString());
             
-            // 경찰에게만 전송 (개인 메시지)
+            // 경찰에게만 전송 (개인 메시지) - queue로 전송
             messagingTemplate.convertAndSendToUser(policePlayerId, "/queue/police", investigationMessage);
             
-            log.info("경찰 조사 결과 전송: {} -> {}", policePlayerId, targetRole);
+            log.info("경찰 조사 결과 전송: {} -> {}", policePlayerId, target);
             
         } catch (Exception e) {
             log.error("경찰 조사 결과 전송 실패: {}", game.getGameId(), e);
@@ -717,15 +715,6 @@ public class GameService {
     }
     
     /**
-     * 시간 연장/단축 (GameTimerService로 위임)
-     * 순환 참조 해결을 위해 GameController에서 직접 GameTimerService 호출
-     */
-    public boolean extendTime(String gameId, String playerId, int seconds) {
-        // GameTimerService에서 직접 처리하도록 변경
-        return false; // 이 메서드는 더 이상 사용되지 않음
-    }
-    
-    /**
      * 게임 플로우 전환 (대화 → 투표 → 반론 → 찬반 → 밤)
      */
     public Game switchPhase(String gameId) {
@@ -770,6 +759,10 @@ public class GameService {
                 // 밤 → 다음 날 낮 대화
                 game.setCurrentPhase(game.getCurrentPhase() + 1);
                 game.setGamePhase(GamePhase.DAY_DISCUSSION);
+                // 플레이어별 시간 연장 사용 여부 초기화
+                for (GamePlayer player : game.getPlayers()) {
+                    game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+                }
                 game.setIsDay(true);  // 낮으로 전환
                 game.setRemainingTime(60);  // 낮 대화 60초
                 log.info("밤 액션 → {}일째 낮 대화 전환 (60초)", game.getCurrentPhase());
@@ -821,5 +814,33 @@ public class GameService {
     public void deleteGame(String gameId) {
         games.remove(gameId);
         log.info("게임 삭제됨: {}", gameId);
+    }
+
+    /**
+     * 마피아 확인
+     */
+    public boolean isMafia(GamePlayer player) {
+        return player.getRole() == PlayerRole.MAFIA;
+    }
+
+    /**
+     * 경찰 확인
+     */
+    public boolean isPolice(GamePlayer player) {
+        return player.getRole() == PlayerRole.POLICE;
+    }
+
+    /**
+     * 의사 확인
+     */
+    public boolean isDoctor(GamePlayer player){
+        return player.getRole() == PlayerRole.DOCTOR;
+    }
+
+    /**
+     * 시민 확인
+     */
+    public boolean isCitizen(GamePlayer player){
+        return player.getRole() == PlayerRole.CITIZEN;
     }
 }
