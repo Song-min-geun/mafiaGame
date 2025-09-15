@@ -1337,7 +1337,11 @@ function showNightActionUI(game, currentPlayer) {
         
         if (currentPlayer.role !== 'CITIZEN') {
             game.players.forEach(player => {
-                if (player.isAlive && player.playerId !== currentUser.userLoginId) {
+                // 의사는 자기 자신도 치료할 수 있음
+                const canSelectSelf = currentPlayer.role === 'DOCTOR';
+                const isSelf = player.playerId === currentUser.userLoginId;
+                
+                if (player.isAlive && (canSelectSelf || !isSelf)) {
                     const option = document.createElement('div');
                     option.className = 'night-action-option';
                     option.textContent = player.playerName;
