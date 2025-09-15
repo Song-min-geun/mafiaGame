@@ -44,7 +44,6 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // 정적 리소스 허용
                 .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/webjars/**","/favicon.ico").permitAll()
-                // WebSocket 엔드포인트는 인증 필요
                 .requestMatchers("/ws/**").permitAll()
                 // H2 콘솔 허용 (개발용)
                 .requestMatchers("/h2-console/**").permitAll()

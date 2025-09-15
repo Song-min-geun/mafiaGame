@@ -516,7 +516,7 @@ function subscribeToRoom(roomId) {
                 }
                 break;
 
-            case 'TIME_EXTENDED':
+            case 'TIME_EXTEND':
                 // 시간 연장 메시지 처리
                 if (chatMessage.gameId === currentGameId) {
                     currentGame.remainingTime = chatMessage.remainingTime;
@@ -526,14 +526,14 @@ function subscribeToRoom(roomId) {
                     const timeMessage = {
                         type: 'SYSTEM',
                         senderId: 'SYSTEM',
-                        content: `${chatMessage.playerName}님이 시간을 연장하였습니다.`,
+                        content: `⏰ ${chatMessage.playerName}님이 시간을 ${chatMessage.seconds}초 연장했습니다.`,
                         timestamp: new Date().toISOString()
                     };
                     addMessage(timeMessage, 'system');
                 }
                 break;
                 
-            case 'TIME_REDUCED':
+            case 'TIME_REDUCE':
                 // 시간 감소 메시지 처리
                 if (chatMessage.gameId === currentGameId) {
                     currentGame.remainingTime = chatMessage.remainingTime;
@@ -543,7 +543,7 @@ function subscribeToRoom(roomId) {
                     const timeMessage = {
                         type: 'SYSTEM',
                         senderId: 'SYSTEM',
-                        content: `${chatMessage.playerName}님이 시간을 단축하였습니다.`,
+                        content: `⏰ ${chatMessage.playerName}님이 시간을 ${chatMessage.seconds}초 단축했습니다.`,
                         timestamp: new Date().toISOString()
                     };
                     addMessage(timeMessage, 'system');
@@ -559,14 +559,6 @@ function subscribeToRoom(roomId) {
                     if (chatMessage.eliminatedPlayerId) {
                         currentGame.votedPlayerId = chatMessage.eliminatedPlayerId;
                         currentGame.votedPlayerName = chatMessage.eliminatedPlayerName;
-                        
-                        const voteMessage = {
-                            type: 'SYSTEM',
-                            senderId: 'SYSTEM',
-                            content: `${chatMessage.eliminatedPlayerName}님이 최다 득표를 받았습니다. 최후의 변론 시간입니다.`,
-                            timestamp: new Date().toISOString()
-                        };
-                        addMessage(voteMessage, 'system');
                     }
                     
                     // 투표 UI 업데이트
