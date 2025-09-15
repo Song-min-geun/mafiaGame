@@ -327,13 +327,7 @@ public class GameController {
             boolean success = gameTimerService.extendTime(request.gameId(), request.playerId(), request.seconds());
 
             if (success) {
-                int remainingTime = gameService.getGame(request.gameId()).getRemainingTime();
-                return ResponseEntity.ok(
-                        ApiResponse.success(
-                                "시간이 " + request.seconds() + "초 조절되었습니다.",
-                                new ExtendTimeResult(remainingTime)
-                        )
-                );
+
             } else {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.fail("시간 연장/단축에 실패했습니다."));
@@ -497,18 +491,12 @@ public class GameController {
      * 역할 설명 반환
      */
     private String getRoleDescription(PlayerRole role) {
-        switch (role) {
-            case MAFIA:
-                return "마피아 - 밤마다 한 명을 선택하여 제거할 수 있습니다.";
-            case DOCTOR:
-                return "의사 - 밤마다 한 명을 선택하여 마피아의 공격을 막을 수 있습니다.";
-            case POLICE:
-                return "경찰 - 밤마다 한 명을 선택하여 마피아인지 시민인지 알 수 있습니다.";
-            case CITIZEN:
-                return "시민 - 낮에 투표로 마피아를 찾아내야 합니다.";
-            default:
-                return "알 수 없는 역할";
-        }
+        return switch (role) {
+            case MAFIA -> "마피아 - 밤마다 한 명을 선택하여 제거할 수 있습니다.";
+            case DOCTOR -> "의사 - 밤마다 한 명을 선택하여 마피아의 공격을 막을 수 있습니다.";
+            case POLICE -> "경찰 - 밤마다 한 명을 선택하여 마피아인지 시민인지 알 수 있습니다.";
+            case CITIZEN -> "시민 - 낮에 투표로 마피아를 찾아내야 합니다.";
+        };
     }
     
     /**
