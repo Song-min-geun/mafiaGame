@@ -6,6 +6,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.example.mafiagame.game.dto.request.ExtendTimeRequest;
+import com.example.mafiagame.game.dto.response.ApiResponse;
+import com.example.mafiagame.game.dto.response.ExtendTimeResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -317,51 +320,32 @@ public class GameController {
      * 시간 연장/단축
      */
     @PostMapping("/extend-time")
-    public ResponseEntity<?> extendTime(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<ApiResponse<ExtendTimeResult>> extendTime(
+            @RequestBody ExtendTimeRequest request
+    ) {
         try {
-            String gameId = (String) request.get("gameId");
-            String playerId = (String) request.get("playerId");
-            Integer seconds = (Integer) request.get("seconds");
-            
-            log.info("🔍 시간 연장/단축 요청: gameId={}, playerId={}, seconds={}", gameId, playerId, seconds);
-            
-            boolean success = gameTimerService.extendTime(gameId, playerId, seconds);
-            
+            boolean success = gameTimerService.extendTime(request.gameId(), request.playerId(), request.seconds());
+
             if (success) {
-                // 시간 연장 메시지를 방에 브로드캐스트
-                Game game = gameService.getGame(gameId);
-                if (game != null) {
-                    Map<String, Object> timeMessage = new HashMap<>();
-                    timeMessage.put("type", "TIME_EXTENDED");
-                    timeMessage.put("playerId", playerId);
-                    timeMessage.put("seconds", seconds);
-                    timeMessage.put("remainingTime", game.getRemainingTime());
-                    
-                    messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), timeMessage);
-                }
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", true);
-                response.put("message", "시간이 " + seconds + "초 조절되었습니다.");
-                response.put("remainingTime", gameService.getGame(gameId).getRemainingTime());
-                
-                return ResponseEntity.ok(response);
+                int remainingTime = gameService.getGame(request.gameId()).getRemainingTime();
+                return ResponseEntity.ok(
+                        ApiResponse.success(
+                                "시간이 " + request.seconds() + "초 조절되었습니다.",
+                                new ExtendTimeResult(remainingTime)
+                        )
+                );
             } else {
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", false);
-                response.put("message", "시간 연장/단축에 실패했습니다.");
-                
-                return ResponseEntity.badRequest().body(response);
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.fail("시간 연장/단축에 실패했습니다."));
             }
-            
+
         } catch (Exception e) {
             log.error("시간 연장/단축 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "시간 연장/단축에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.fail("서버 오류로 시간 조절에 실패했습니다."));
         }
     }
+
 
     /**
      * 페이즈 전환
@@ -375,10 +359,11 @@ public class GameController {
             if (game != null) {
                 // 페이즈 전환 메시지를 방에 브로드캐스트
                 Map<String, Object> phaseMessage = new HashMap<>();
-                phaseMessage.put("type", "PHASE_SWITCHED");
+                phaseMessage.put("type", "SYSTEM");
                 phaseMessage.put("gameId", gameId);
                 phaseMessage.put("currentPhase", game.getCurrentPhase());
                 phaseMessage.put("isDay", game.isDay());  // ❗ 수정: isDay 필드만 사용
+                phaseMessage.put("content", "페이즈가 변경되었습니다.");
                 phaseMessage.put("remainingTime", game.getRemainingTime());
                 
                 messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), phaseMessage);
