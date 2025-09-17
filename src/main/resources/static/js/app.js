@@ -173,11 +173,43 @@ function connectWebSocket() {
     stompClient.connect({ 'Authorization': 'Bearer ' + token },
         frame => {
             document.getElementById('connectionStatus').textContent = '연결됨';
+            
+            // 연결 성공 시 개인 메시지 구독
+            subscribeToPrivateMessages();
         },
         error => {
             document.getElementById('connectionStatus').textContent = '연결 실패';
         }
     );
+}
+
+// 개인 메시지 구독을 위한 함수
+function subscribeToPrivateMessages() {
+    if (!stompClient || !stompClient.connected) return;
+
+    stompClient.subscribe('/user/queue/private', (message) => {
+        const privateMessage = JSON.parse(message.body);
+        console.log('개인 메시지 수신:', privateMessage);
+
+        switch (privateMessage.type) {
+            // ROLE_ASSIGNED는 이제 공용 토픽에서 처리됨
+            
+            case 'POLICE_INVESTIGATION_RESULT':
+                // 경찰 조사 결과 메시지 처리
+                addMessage({ senderId: 'SYSTEM', content: privateMessage.content }, 'system');
+                break;
+            
+            case 'NIGHT_ACTION_RESULT':
+                // 밤 액션 결과 메시지 처리
+                addMessage({ senderId: 'SYSTEM', content: privateMessage.content }, 'system');
+                break;
+            
+            case 'NIGHT_ACTION_COMPLETE':
+                // 밤 액션 완료 피드백 (선택 사항)
+                console.log('밤 액션이 성공적으로 서버에 기록되었습니다.');
+                break;
+        }
+    });
 }
 
 // --- 방 관리 및 메시지 관련 함수 ---
@@ -382,15 +414,7 @@ function subscribeToRoom(roomId) {
     
     const destination = `/topic/room.${roomId}`;
     
-    // 개인 메시지 구독 추가 - 역할별 조건부 구독
-    stompClient.subscribe('/user/queue/night-action', function(message) {
-        const actionMessage = JSON.parse(message.body);
-        if (actionMessage.gameId === currentGameId) {
-            addMessage(actionMessage, 'system');
-        }
-    });
-    
-    // 역할별 구독은 게임 시작 후 setupRoleBasedSubscriptions()에서 설정
+    // 개인 메시지는 이제 /user/queue/private로 통합 처리됨
     
     currentRoomSubscription = stompClient.subscribe(destination, (message) => {
         const chatMessage = JSON.parse(message.body);
@@ -597,6 +621,7 @@ function subscribeToRoom(roomId) {
             case 'ROLE_ASSIGNED':
                 // 개인 역할 배정 메시지 처리
                 if (chatMessage.playerId === currentUser.userLoginId) {
+                    console.log('내 역할 배정 메시지 수신:', chatMessage);
                     const roleMessage = {
                         type: 'SYSTEM',
                         senderId: 'SYSTEM',
@@ -1646,7 +1671,6 @@ async function submitNightAction() {
         const result = await response.json();
         
         if (result.success) {
-            alert('밤 액션이 완료되었습니다.');
             selectedNightActionTarget = null;
             
             // 액션 UI 초기화

@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import com.example.mafiagame.game.domain.Game;
@@ -68,83 +69,61 @@ public class GameTimerService {
         stopGameTimer(gameId);
         log.info("게임 제거됨: {}", gameId);
     }
-    
-    /**
-     * 게임 타이머 시작
-     */
-    public void startGameTimer(String gameId) {
-        // 기존 타이머가 있으면 정지
-        stopGameTimer(gameId);
-        
-        Timer timer = new Timer("GameTimer-" + gameId);
-        TimerTask task = new TimerTask() {
-            @Override
-            public void run() {
-                try {
-                    updateGameTimer(gameId);
-                } catch (Exception e) {
-                    log.error("게임 타이머 업데이트 실패: {}", gameId, e);
-                }
+
+    @Scheduled(fixedRate = 1000)
+    public void updateAllGameTimers() {
+        if (games.isEmpty()) {
+            return; // 실행 중인 게임이 없으면 아무것도 하지 않음
+        }
+
+        // ConcurrentHashMap의 keySet을 사용하여 안전하게 모든 게임 ID를 순회
+        for (String gameId : games.keySet()) {
+            try {
+                updateGameTimer(gameId);
+            } catch (Exception e) {
+                log.error("게임 타이머 업데이트 중 오류 발생: {}", gameId, e);
             }
-        };
-        
-        // 1초마다 실행
-        timer.scheduleAtFixedRate(task, 0, 1000);
-        
-        gameTimers.put(gameId, timer);
-        gameTimerTasks.put(gameId, task);
-        
-        log.info("게임 타이머 시작: {}", gameId);
-    }
-    
-    /**
-     * 게임 타이머 정지
-     */
-    public void stopGameTimer(String gameId) {
-        Timer timer = gameTimers.remove(gameId);
-        TimerTask task = gameTimerTasks.remove(gameId);
-        
-        if (timer != null) {
-            timer.cancel();
-            log.info("게임 타이머 정지: {}", gameId);
-        }
-        
-        if (task != null) {
-            task.cancel();
         }
     }
-    
+
     /**
      * 게임 타이머 업데이트 (1초마다 호출)
      */
     private void updateGameTimer(String gameId) {
         Game game = getGame(gameId);
         if (game == null) {
-            log.warn("게임을 찾을 수 없어 타이머 정지: {}", gameId);
-            stopGameTimer(gameId);
+            // 게임이 이미 종료되어 맵에서 제거된 경우일 수 있으므로, 종료.
             return;
         }
-        
-        // 게임이 종료되었으면 타이머 정지
+
+        // 게임이 종료되었으면 관리 목록에서 제거하고 타이머 정지
         if (game.getStatus().toString().equals("ENDED")) {
-            log.info("게임 종료로 인한 타이머 정지: {}", gameId);
-            stopGameTimer(gameId);
+            removeGame(gameId);
             return;
         }
-        
+
         // 남은 시간 감소
         int remainingTime = game.getRemainingTime();
         if (remainingTime > 0) {
             game.setRemainingTime(remainingTime - 1);
-            
+
             // 클라이언트에 타이머 업데이트 전송
             sendTimerUpdate(game);
-            
+
         } else {
             // 시간 종료 - 다음 페이즈로 전환
             log.info("시간 종료! 다음 페이즈로 전환: {}", gameId);
             switchPhase(game);
         }
+    }
+
+    public void startGameTimer(String gameId) {
+        log.info("게임 {}의 타이머 로직이 중앙 스케줄러에 의해 관리되기 시작합니다.", gameId);
+    }
+
+    
+    public void stopGameTimer(String gameId) {
+        removeGame(gameId);
     }
     
     /**
@@ -156,13 +135,9 @@ public class GameTimerService {
             return false;
         }
         
-        // 클라이언트에서 이미 버튼 비활성화로 처리되므로 서버 체크 불필요
-        
         // 시간 조절 (최소 0초, 최대 300초)
         int newRemainingTime = Math.max(0, Math.min(300, game.getRemainingTime() + seconds));
         game.setRemainingTime(newRemainingTime);
-        
-        // 클라이언트에서 버튼 비활성화로 처리되므로 서버 상태 저장 불필요
 
         // 클라이언트에 시간 연장 메시지 전송
         sendTimeExtendedMessage(game, playerId, seconds);
