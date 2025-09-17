@@ -11,6 +11,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import com.example.mafiagame.game.dto.request.NightResultMessageDto;
+import com.example.mafiagame.game.dto.request.PoliceResultMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -63,8 +65,7 @@ public class GameService {
                 .build();
         
         games.put(gameId, game);
-        
-        // GameTimerService에 게임 등록
+
         gameTimerService.registerGame(game);
         
         log.info("게임 생성됨: {}", gameId);
@@ -161,11 +162,10 @@ public class GameService {
      */
     public void processNightAction(String gameId, String playerId, String targetId) {
         Game game = games.get(gameId);
-        if (game == null) {
-            throw new IllegalArgumentException("게임을 찾을 수 없습니다: " + gameId);
-        }
-        
+        GamePlayer policePlayer = getPolicePlayerName(game);
+
         GamePlayer player = findPlayer(game, playerId);
+
         if (player == null || !player.isAlive()) {
             throw new IllegalArgumentException("플레이어가 존재하지 않거나 생존하지 않습니다: " + playerId);
         }
@@ -182,18 +182,40 @@ public class GameService {
         sendNightActionResult(game, player, targetId);
         
         // 경찰인 경우 조사 결과 즉시 전송
-        if (isPolice(player)) {
+        if (playerId.equals(policePlayer) && targetId != null) {
             GamePlayer target = findPlayer(game, targetId);
             if (target == null) {
                 log.warn("조사 대상 플레이어를 찾을 수 없습니다: {}", targetId);
                 return;
             }
-            sendPoliceInvestigationResult(game, playerId, target);
+            sendPoliceInvestigationResult(game, policePlayer, target);
+        }
+
+        // 모든 밤 액션이 완료되었는지 확인
+        if (areAllNightActionsComplete(game)) {
+            log.info("모든 밤 액션이 완료되어 결과를 처리합니다.");
+            processNightResults(gameId);
+        } else {
+            log.info("아직 완료되지 않은 밤 액션이 있어 대기합니다.");
         }
         
         log.info("밤 액션 저장: {} ({}) -> {}", player.getPlayerName(), player.getRole(), targetId);
     }
     
+    /**
+     * 모든 밤 액션이 완료되었는지 확인하는 헬퍼 메서드
+     */
+    private boolean areAllNightActionsComplete(Game game) {
+        long requiredActions = game.getPlayers().stream()
+                .filter(p -> p.isAlive() && p.getRole() != PlayerRole.CITIZEN)
+                .count();
+
+        long completedActions = game.getNightActions().size();
+        
+        log.info("밤 액션 확인: 필요 액션 수 = {}, 완료된 액션 수 = {}", requiredActions, completedActions);
+        return completedActions >= requiredActions;
+    }
+
     /**
      * 밤 결과 처리
      */
@@ -205,7 +227,7 @@ public class GameService {
         List<GamePlayer> players = game.getPlayers();
 
         for(GamePlayer player : players){
-
+            player.setVoteCount(0);
         }
         
         // 마피아의 타겟
@@ -297,8 +319,8 @@ public class GameService {
                     break;
             }
             
-            // 해당 플레이어에게만 전송 (개인 메시지) - queue로 전송
-            messagingTemplate.convertAndSendToUser(player.getPlayerId(), "/queue/night-action", actionMessage);
+            // 해당 플레이어에게만 전송 (개인 메시지) - 개인 메시지 전용 주소로 전송
+            messagingTemplate.convertAndSendToUser(player.getPlayerId(), "/queue/private", actionMessage);
             
             log.info("밤 액션 결과 메시지 전송: {} -> {}", player.getPlayerName(), target.getPlayerName());
             
@@ -306,43 +328,37 @@ public class GameService {
             log.error("밤 액션 결과 메시지 전송 실패: {}", game.getGameId(), e);
         }
     }
-    
-    /**
-     * 밤 결과 메시지 전송
-     */
+
     private void sendNightResultMessage(Game game, String mafiaTarget, String doctorTarget) {
         try {
-            String resultMessage;
-            
-            if (mafiaTarget != null) {
+            String resultMessage = "이번 밤에 아무 일도 일어나지 않았습니다.";
+            String killedPlayerId = null;
+            GamePlayer killedPlayer = null;
+
+            //의사의 치료 대상과 일치하지 않을 때
+            if (mafiaTarget != null && !mafiaTarget.equals(doctorTarget)) {
                 GamePlayer target = findPlayer(game, mafiaTarget);
+
                 if (target != null && target.isAlive()) {
-                    // 의사가 치료했는지 확인
-                    if (mafiaTarget.equals(doctorTarget)) {
-                        resultMessage = "이번 밤에 살해는 일어나지 않았습니다.";
-                    } else {
-                        resultMessage = String.format("%s님이 살해되었습니다.", target.getPlayerName());
-                    }
-                } else {
-                    resultMessage = "이번 밤에 살해는 일어나지 않았습니다.";
+                    killedPlayer = target;
+                    killedPlayerId = killedPlayer.getPlayerId();
+                    resultMessage = String.format("%s님이 살해되었습니다.", killedPlayer.getPlayerName());
                 }
-            } else {
-                resultMessage = "이번 밤에 살해는 일어나지 않았습니다.";
             }
-            
-            // 밤 결과 시스템 메시지 전송
-            Map<String, Object> nightResultMessage = new HashMap<>();
-            nightResultMessage.put("type", "SYSTEM");
-            nightResultMessage.put("senderId", "SYSTEM");
-            nightResultMessage.put("senderName", "시스템");
-            nightResultMessage.put("roomId", game.getRoomId());
-            nightResultMessage.put("content", resultMessage);
-            nightResultMessage.put("timestamp", java.time.LocalDateTime.now().toString());
-            
+
+            NightResultMessageDto nightResultMessage = new NightResultMessageDto(
+                    "SYSTEM",
+                    "SYSTEM",
+                    "시스템",
+                    game.getRoomId(),
+                    resultMessage,
+                    LocalDateTime.now().toString(),
+                    killedPlayerId
+            );
+
             messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), nightResultMessage);
-            
             log.info("밤 결과 메시지 전송: {}", resultMessage);
-            
+
         } catch (Exception e) {
             log.error("밤 결과 메시지 전송 실패: {}", game.getGameId(), e);
         }
@@ -351,21 +367,21 @@ public class GameService {
     /**
      * 경찰 조사 결과 전송
      */
-    private void sendPoliceInvestigationResult(Game game, String policePlayerId, GamePlayer target) {
+    private void sendPoliceInvestigationResult(Game game, GamePlayer police, GamePlayer target) {
         try {
-            // 경찰에게만 전송할 개인 메시지
-            Map<String, Object> investigationMessage = new HashMap<>();
-            investigationMessage.put("type", "POLICE_INVESTIGATION_RESULT");
-            investigationMessage.put("gameId", game.getGameId());
-            investigationMessage.put("roomId", game.getRoomId());
-            investigationMessage.put("senderId", "SYSTEM");
-            investigationMessage.put("content", String.format("🔍 조사 결과: %s는 %s",target, target.getRole() == PlayerRole.MAFIA ? "마피아입니다!" : "시민입니다."));
-            investigationMessage.put("timestamp", java.time.LocalDateTime.now().toString());
+            PoliceResultMessage policeResultMessage = new PoliceResultMessage(
+                    "POLICE_INVESTIGATION_RESULT",
+                    "SYSTEM",
+                    "시스템",
+                    game.getRoomId(),
+                    police.getPlayerName(),
+                    String.format("🔍 조사 결과: %s는 %s",target, target.getRole() == PlayerRole.MAFIA ? "마피아입니다!" : "시민입니다."),
+                    LocalDateTime.now().toString()
+            );
+            // 경찰에게만 전송 (개인 메시지) - 개인 메시지 전용 주소로 전송
+            messagingTemplate.convertAndSendToUser(police.getPlayerId(), "/queue/private", policeResultMessage);
             
-            // 경찰에게만 전송 (개인 메시지) - queue로 전송
-            messagingTemplate.convertAndSendToUser(policePlayerId, "/queue/police", investigationMessage);
-            
-            log.info("경찰 조사 결과 전송: {} -> {}", policePlayerId, target);
+            log.info("경찰 조사 결과 전송: {} -> {}", police, target);
             
         } catch (Exception e) {
             log.error("경찰 조사 결과 전송 실패: {}", game.getGameId(), e);
@@ -842,5 +858,12 @@ public class GameService {
      */
     public boolean isCitizen(GamePlayer player){
         return player.getRole() == PlayerRole.CITIZEN;
+    }
+
+    public GamePlayer getPolicePlayerName(Game game){
+        return game.getPlayers().stream()
+                .filter(p -> p.getRole() == PlayerRole.POLICE)
+                .findFirst()
+                .orElse(null);
     }
 }

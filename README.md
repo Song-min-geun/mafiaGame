@@ -164,6 +164,7 @@ src/main/java/com/example/mafiagame/
 - sendMassage.senderId == "SYSTEM" && message.content.includes("입장") || message.content.includes("퇴장") 일떄 local Count를 수정하여 형식 변경 취약, 데이터 표현 분리 x ->  서버가 신뢰할 수 있는 단일 데이터 소스(Single Source of Truth) 역할을 하도록 아키텍처를 개선, 사용자가 입장하거나 퇴장할 때, 단순히 "입장했습니다"와 같은 텍스트만 보내는 것이 아니라, 명확한 타입(JOIN, LEAVE)과 함께 방의 최신 참가자 목록 전체를 데이터(data) 페이로드에 담아 전송 JOIN 또는 LEAVE 타입의 메시지를 수신하면, 함께 전달된 최신 참가자 목록 데이터로 로컬 상태를 완전히 덮어쓰는 방식
 - 채팅방의 방장이 방 나가기 실행 시 방장 권한이 아무에게도 넘어가지 않아 게임실행이 불가 -> 해당 채팅방에 참가자 리스트 순서대로  방장 권한 전가
 - CurrentHashMap을 통해 WebSocket과의 연결 데이터를 관리하기 때문에 새로고침을 누르게 되였을 때 WebSocket과의 연결이 끊어짐 -> Redis를 이용한 WebSocket의 연결 데이터를 관리하게되면 새로고침을 하더라도 Redis서버에 데이터가 저장되어 지속적인 서비스 연결 가능하여 해결
+- 지금 모든 게임에 하나의 gameTimer를 하나씩두어 여러개의 game이 시작 시 game 수 만큼의 gameTimer가 생성되고 감당할수 없는 thread를 사용하게 됨 -> 중앙 집중형 스케줄러 
 
 ## 🚧 향후 개선 계획
 
