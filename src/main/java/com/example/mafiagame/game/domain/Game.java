@@ -69,7 +69,7 @@ public class Game {
     private boolean hasPolice = false;        // 경찰 포함 여부
 
     @Transient
-    private List<GamePlayer> players;         // 플레이어 목록
+    private Players players;         // 플레이어 목록
     
     @Transient
     @Builder.Default

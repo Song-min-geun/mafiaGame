@@ -9,14 +9,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import com.example.mafiagame.game.domain.*;
 import org.springframework.stereotype.Service;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
-import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GamePlayer;
-import com.example.mafiagame.game.domain.GameStatus;
 import com.example.mafiagame.user.service.UserService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -306,13 +303,13 @@ public class ChatRoomService {
                         .isReady(false)
                         .voteCount(0)
                         .build())
-                .collect(Collectors.toList());
+                .toList();
 
         return Game.builder()
                 .gameId(gameId)
                 .roomId(room.getRoomId())
                 .status(GameStatus.WAITING)
-                .players(gamePlayers)
+                .players()
                 .currentPhase(0)
                 .isDay(true)
                 .gamePhase(GamePhase.DAY_DISCUSSION)
