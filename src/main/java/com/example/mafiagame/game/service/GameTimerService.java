@@ -209,14 +209,16 @@ public class GameTimerService {
                 game.setRemainingTime(30);  // 밤 액션 30초
                 log.info("찬성/반대 → 밤 액션 전환 (30초)");
                 break;
-                
+
             case NIGHT_ACTION:
                 // 밤 → 다음 날 낮 대화
                 game.setCurrentPhase(game.getCurrentPhase() + 1);
                 game.setGamePhase(GamePhase.DAY_DISCUSSION);
                 game.setIsDay(true);  // 낮으로 전환
                 game.setRemainingTime(60);  // 낮 대화 60초
-                game.getTimeExtensionsUsed();
+                for (GamePlayer player : game.getPlayers()) {
+                    game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+                }
                 log.info("밤 액션 → {}일째 낮 대화 전환 (60초)", game.getCurrentPhase());
                 break;
         }
