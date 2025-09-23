@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 public class Players {
+
     final private List<GamePlayer> players;
 
     /**

@@ -3,6 +3,7 @@ package com.example.mafiagame.chat.controller;
 import java.security.Principal;
 import java.util.Map;
 
+import com.example.mafiagame.chat.domain.ChatUser;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -19,6 +20,7 @@ import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.GameTimerService;
+import com.example.mafiagame.global.service.RedisService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,7 @@ public class ChatController {
     private final ChatRoomService chatRoomService;
     private final GameService gameService;
     private final GameTimerService gameTimerService;
+    private final RedisService redisService;
 
     @MessageMapping("/chat.sendMessage")
     public void sendMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor) {
@@ -85,6 +88,9 @@ public class ChatController {
         
         // WebSocket 연결 상태 등록
         chatRoomService.registerWebSocketConnection(senderLoginId);
+        
+        // 사용자 세션 저장 (방 정보)
+        redisService.saveUserSession(senderLoginId, roomId, null);
 
         // ❗ 수정: 구조화된 데이터와 함께 메시지 전송
         ChatRoom room = chatRoomService.getRoom(roomId);
@@ -170,8 +176,17 @@ public class ChatController {
     @MessageMapping("/game.start")
     public void startGame(@Payload Map<String, Object> payload) {
         String roomId = (String) payload.get("roomId");
+        String gameId = (String) payload.get("gameId");
 
-        log.info("Starting game in room: {}", roomId);
+        log.info("Starting game in room: {} with gameId: {}", roomId, gameId);
+
+        // 방의 모든 참가자에게 게임 세션 저장
+        ChatRoom room = chatRoomService.getRoom(roomId);
+        if (room != null && room.getParticipants() != null) {
+            for (ChatUser participant : room.getParticipants()) {
+                redisService.saveUserSession(participant.getUserId(), roomId, gameId);
+            }
+        }
 
         ChatMessage gameStartMessage = ChatMessage.builder()
                 .type(ChatMessage.MessageType.GAME_START)

@@ -20,6 +20,11 @@ import org.springframework.stereotype.Service;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameStatus;
+import com.example.mafiagame.game.domain.NightAction;
+import com.example.mafiagame.game.domain.PlayerRole;
+import com.example.mafiagame.game.domain.Vote;
+import com.example.mafiagame.game.domain.FinalVote;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -166,10 +171,50 @@ public class GameTimerService {
                 break;
                 
             case DAY_VOTING:
-                // 투표 결과 처리 (최다 득표자 선정만, 아직 제거하지 않음)
+                // 투표 결과 처리
                 log.info("투표 결과 처리 시작: {}", game.getGameId());
                 String votedPlayerId = getVotedPlayerId(game);
                 log.info("투표 결과: 최다 득표자 = {}", votedPlayerId);
+                
+                // 투표가 없는 경우 처리
+                if (votedPlayerId == null) {
+                    log.info("투표가 없어서 밤으로 전환");
+                    
+                    // 투표 초기화
+                    game.getVotes().clear();
+                    
+                    // 밤으로 바로 전환
+                    game.setGamePhase(GamePhase.NIGHT_ACTION);
+                    game.setIsDay(false);
+                    game.setRemainingTime(30);  // 밤 액션 30초
+                    
+                    // 시스템 메시지 전송
+                    sendNoVoteMessage(game);
+                    
+                    log.info("투표 없음 → 밤 액션 전환 (30초)");
+                    break;
+                }
+                
+                // 동률인 경우 다시 투표
+                if (isTiedVote(game)) {
+                    log.info("동률이 발생하여 다시 투표");
+                    
+                    // 투표 초기화
+                    game.getVotes().clear();
+                    
+                    // 다시 투표 페이즈로
+                    game.setGamePhase(GamePhase.DAY_VOTING);
+                    game.setRemainingTime(30);  // 투표 30초
+                    
+                    // 투표 페이즈별 시간 연장 기회 초기화
+                    resetVotingTimeExtensions(game);
+                    
+                    // 시스템 메시지 전송
+                    sendTiedVoteMessage(game);
+                    
+                    log.info("동률 → 다시 투표 전환 (30초)");
+                    break;
+                }
                 
                 // 최다 득표자 ID 저장 (최후 변론용)
                 game.setVotedPlayerId(votedPlayerId);
@@ -211,6 +256,10 @@ public class GameTimerService {
                 break;
 
             case NIGHT_ACTION:
+                // 밤 액션 결과 처리
+                log.info("밤 액션 결과 처리 시작: {}", game.getGameId());
+                processNightActionResults(game);
+                
                 // 밤 → 다음 날 낮 대화
                 game.setCurrentPhase(game.getCurrentPhase() + 1);
                 game.setGamePhase(GamePhase.DAY_DISCUSSION);
@@ -331,7 +380,7 @@ public class GameTimerService {
      * 최종 투표 결과 처리 (찬성/반대)
      */
     private String processFinalVoteResults(Game game) {
-        Map<String, String> finalVotes = game.getFinalVotes();
+        List<FinalVote> finalVotes = game.getFinalVotes();
         if (finalVotes.isEmpty()) {
             log.info("최종 투표가 없어서 제거된 플레이어 없음");
             return "NO_VOTES";
@@ -341,10 +390,10 @@ public class GameTimerService {
         int agreeCount = 0;
         int disagreeCount = 0;
         
-        for (String vote : finalVotes.values()) {
-            if ("AGREE".equals(vote)) {
+        for (FinalVote finalVote : finalVotes) {
+            if ("AGREE".equals(finalVote.getVote())) {
                 agreeCount++;
-            } else if ("DISAGREE".equals(vote)) {
+            } else if ("DISAGREE".equals(finalVote.getVote())) {
                 disagreeCount++;
             }
         }
@@ -387,7 +436,7 @@ public class GameTimerService {
      * 투표 결과 처리 (최다 득표자 선정만, 제거하지 않음)
      */
     private String processVoteResults(Game game) {
-        Map<String, String> votes = game.getVotes();
+        List<Vote> votes = game.getVotes();
         if (votes.isEmpty()) {
             log.info("투표가 없어서 최다 득표자 없음");
             return null;
@@ -395,7 +444,8 @@ public class GameTimerService {
         
         // 투표 수 집계
         Map<String, Integer> voteCounts = new HashMap<>();
-        for (String targetId : votes.values()) {
+        for (Vote vote : votes) {
+            String targetId = vote.getTargetId();
             voteCounts.put(targetId, voteCounts.getOrDefault(targetId, 0) + 1);
         }
         
@@ -435,14 +485,15 @@ public class GameTimerService {
      * 최다 득표자 찾기
      */
     private String getVotedPlayerId(Game game) {
-        Map<String, String> votes = game.getVotes();
+        List<Vote> votes = game.getVotes();
         if (votes.isEmpty()) {
             return null;
         }
         
         // 투표 수 집계
         Map<String, Integer> voteCounts = new HashMap<>();
-        for (String targetId : votes.values()) {
+        for (Vote vote : votes) {
+            String targetId = vote.getTargetId();
             voteCounts.put(targetId, voteCounts.getOrDefault(targetId, 0) + 1);
         }
         
@@ -472,6 +523,247 @@ public class GameTimerService {
         }
         
         return votedPlayerId;
+    }
+    
+    /**
+     * 동률 투표인지 확인
+     */
+    private boolean isTiedVote(Game game) {
+        List<Vote> votes = game.getVotes();
+        if (votes.isEmpty()) {
+            return false;
+        }
+        
+        // 투표 수 집계
+        Map<String, Integer> voteCounts = new HashMap<>();
+        for (Vote vote : votes) {
+            String targetId = vote.getTargetId();
+            voteCounts.put(targetId, voteCounts.getOrDefault(targetId, 0) + 1);
+        }
+        
+        // 가장 많은 투표 수 찾기
+        int maxVotes = Collections.max(voteCounts.values());
+        
+        // 최대 투표 수를 받은 플레이어가 여러 명인지 확인
+        long maxVotePlayers = voteCounts.values().stream()
+                .filter(count -> count == maxVotes)
+                .count();
+        
+        return maxVotePlayers > 1;
+    }
+    
+    /**
+     * 투표 없음 메시지 전송
+     */
+    private void sendNoVoteMessage(Game game) {
+        try {
+            String messageContent = "🗳️ 아무도 투표하지 않아 밤으로 넘어갑니다.";
+            
+            Map<String, Object> systemMessage = new HashMap<>();
+            systemMessage.put("type", "SYSTEM");
+            systemMessage.put("senderId", "SYSTEM");
+            systemMessage.put("senderName", "시스템");
+            systemMessage.put("roomId", game.getRoomId());
+            systemMessage.put("content", messageContent);
+            systemMessage.put("timestamp", java.time.LocalDateTime.now().toString());
+            
+            // WebSocket으로 시스템 메시지 전송
+            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), systemMessage);
+            
+            log.info("투표 없음 시스템 메시지 전송 완료: {}", messageContent);
+            
+        } catch (Exception e) {
+            log.error("투표 없음 시스템 메시지 전송 실패: {}", game.getGameId(), e);
+        }
+    }
+    
+    /**
+     * 동률 투표 메시지 전송
+     */
+    private void sendTiedVoteMessage(Game game) {
+        try {
+            String messageContent = "🗳️ 동률이 발생하여 다시 투표합니다.";
+            
+            Map<String, Object> systemMessage = new HashMap<>();
+            systemMessage.put("type", "SYSTEM");
+            systemMessage.put("senderId", "SYSTEM");
+            systemMessage.put("senderName", "시스템");
+            systemMessage.put("roomId", game.getRoomId());
+            systemMessage.put("content", messageContent);
+            systemMessage.put("timestamp", java.time.LocalDateTime.now().toString());
+            
+            // WebSocket으로 시스템 메시지 전송
+            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), systemMessage);
+            
+            log.info("동률 투표 시스템 메시지 전송 완료: {}", messageContent);
+            
+        } catch (Exception e) {
+            log.error("동률 투표 시스템 메시지 전송 실패: {}", game.getGameId(), e);
+        }
+    }
+    
+    /**
+     * 밤 액션 결과 처리 (마피아와 의사 결과 공개)
+     */
+    private void processNightActionResults(Game game) {
+        try {
+            List<NightAction> nightActions = game.getNightActions();
+            if (nightActions.isEmpty()) {
+                log.info("밤 액션이 없어서 결과 처리하지 않음");
+                return;
+            }
+            
+            String mafiaTarget = null;
+            String doctorTarget = null;
+            String policeTarget = null;
+            
+            // 각 역할별 액션 수집
+            for (NightAction action : nightActions) {
+                GamePlayer actor = findPlayer(game, action.getActorId());
+                if (actor == null) continue;
+                
+                switch (actor.getRole()) {
+                    case MAFIA:
+                        mafiaTarget = action.getTargetId();
+                        break;
+                    case DOCTOR:
+                        doctorTarget = action.getTargetId();
+                        break;
+                    case POLICE:
+                        policeTarget = action.getTargetId();
+                        break;
+                }
+            }
+            
+            // 마피아와 의사의 결과 처리
+            String killedPlayerId = null;
+            String killedPlayerName = null;
+            
+            if (mafiaTarget != null && !mafiaTarget.equals(doctorTarget)) {
+                // 마피아가 죽이고 의사가 살리지 못한 경우
+                GamePlayer killed = findPlayer(game, mafiaTarget);
+                if (killed != null) {
+                    killed.setIsAlive(false);
+                    killedPlayerId = killed.getPlayerId();
+                    killedPlayerName = killed.getPlayerName();
+                    
+                    // 죽은 플레이어를 죽은 플레이어 채팅방에 추가
+                    addDeadPlayerToChatRoom(game.getRoomId(), killedPlayerId);
+                    
+                    log.info("밤에 사망: {}", killedPlayerName);
+                }
+            }
+            
+            // 밤 결과 메시지 전송 (모든 플레이어에게)
+            sendNightResultMessage(game, killedPlayerId, killedPlayerName, mafiaTarget, doctorTarget);
+            
+            // 밤 액션 초기화
+            game.getNightActions().clear();
+            
+            // 게임 종료 조건 확인
+            checkGameEndCondition(game);
+            
+        } catch (Exception e) {
+            log.error("밤 액션 결과 처리 실패: {}", game.getGameId(), e);
+        }
+    }
+    
+    /**
+     * 밤 결과 메시지 전송 (모든 플레이어에게)
+     */
+    private void sendNightResultMessage(Game game, String killedPlayerId, String killedPlayerName, 
+                                      String mafiaTarget, String doctorTarget) {
+        try {
+            String resultMessage;
+            
+            if (killedPlayerId != null) {
+                resultMessage = String.format("🌙 이번 밤에 %s님이 살해되었습니다.", killedPlayerName);
+            } else {
+                resultMessage = "🌙 이번 밤에 아무 일도 일어나지 않았습니다.";
+            }
+            
+            Map<String, Object> message = new HashMap<>();
+            message.put("type", "NIGHT_RESULT");
+            message.put("gameId", game.getGameId());
+            message.put("roomId", game.getRoomId());
+            message.put("senderId", "SYSTEM");
+            message.put("senderName", "시스템");
+            message.put("content", resultMessage);
+            message.put("timestamp", java.time.LocalDateTime.now().toString());
+            message.put("killedPlayerId", killedPlayerId);
+            message.put("killedPlayerName", killedPlayerName);
+            message.put("players", game.getPlayers());
+            
+            // 모든 플레이어에게 전송
+            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), message);
+            
+            log.info("밤 결과 메시지 전송 완료: {}", resultMessage);
+            
+        } catch (Exception e) {
+            log.error("밤 결과 메시지 전송 실패: {}", game.getGameId(), e);
+        }
+    }
+    
+    /**
+     * 게임 종료 조건 확인
+     */
+    private void checkGameEndCondition(Game game) {
+        try {
+            List<GamePlayer> alivePlayers = getAlivePlayers(game);
+            long aliveMafia = alivePlayers.stream()
+                    .filter(p -> p.getRole() == PlayerRole.MAFIA)
+                    .count();
+            long aliveCitizens = alivePlayers.stream()
+                    .filter(p -> p.getRole() != PlayerRole.MAFIA)
+                    .count();
+            
+            String winner = null;
+            if (aliveMafia >= aliveCitizens && aliveCitizens > 0) {
+                winner = "MAFIA";
+            } else if (aliveMafia == 0) {
+                winner = "CITIZEN";
+            }
+            
+            if (winner != null) {
+                // 게임 종료 처리
+                endGame(game, winner);
+            }
+            
+        } catch (Exception e) {
+            log.error("게임 종료 조건 확인 실패: {}", game.getGameId(), e);
+        }
+    }
+    
+    /**
+     * 게임 종료 처리
+     */
+    private void endGame(Game game, String winner) {
+        try {
+            game.setStatus(GameStatus.ENDED);
+            game.setWinner(winner);
+            game.setEndTime(java.time.LocalDateTime.now());
+            
+            String winnerMessage = "MAFIA".equals(winner) ? "마피아의 승리!" : "시민의 승리!";
+            
+            Map<String, Object> gameEndMessage = new HashMap<>();
+            gameEndMessage.put("type", "GAME_ENDED");
+            gameEndMessage.put("gameId", game.getGameId());
+            gameEndMessage.put("roomId", game.getRoomId());
+            gameEndMessage.put("winner", winner);
+            gameEndMessage.put("message", winnerMessage);
+            gameEndMessage.put("timestamp", java.time.LocalDateTime.now().toString());
+            gameEndMessage.put("players", game.getPlayers());
+            
+            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), gameEndMessage);
+            
+            // 게임 타이머 정지
+            removeGame(game.getGameId());
+            
+            log.info("게임 종료: {} - 승리자: {}", game.getGameId(), winner);
+            
+        } catch (Exception e) {
+            log.error("게임 종료 처리 실패: {}", game.getGameId(), e);
+        }
     }
     
     /**

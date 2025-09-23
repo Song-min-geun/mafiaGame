@@ -1,35 +1,57 @@
 package com.example.mafiagame.game.domain;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonProperty;
-
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+@Entity
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class GamePlayer {
-    private String playerId;        // 플레이어 ID (userLoginId)
-    private String playerName;      // 플레이어 닉네임
-    private PlayerRole role;        // 플레이어 역할
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "game_id")
+    @JsonBackReference
+    private Game game;
+
+    private String playerId;
+
+    private String playerName;
+
+    private PlayerRole role;
+
     @Builder.Default
     @JsonProperty("isAlive")
-    private boolean isAlive = true;        // 생존 여부
+    private boolean isAlive = true;
+
     @Builder.Default
     @JsonProperty("isHost")
-    private boolean isHost = false;         // 방장 여부
+    private boolean isHost = false;
+
     @Builder.Default
     @JsonProperty("isReady")
-    private boolean isReady = false;        // 준비 상태
+    private boolean isReady = false;
+
     @Builder.Default
-    private int voteCount = 0;          // 받은 투표 수
-    private String targetPlayerId;  // 밤에 선택한 타겟 (마피아/의사/경찰용)
-    
+    private int voteCount = 0;
+
+    private String targetPlayerId;
 
     public void setIsAlive(boolean isAlive) {
         this.isAlive = isAlive;
@@ -45,5 +67,58 @@ public class GamePlayer {
     
     public void setVoteCount(int voteCount) {
         this.voteCount = voteCount;
+    }
+
+    public void setAlive(boolean b) {
+        this.isAlive = b;
+    }
+
+    public void setGame(Game game) {
+        this.game = game;
+    }
+
+    // 추가 필요한 메서드들
+    public String getPlayerId() {
+        return playerId;
+    }
+
+    public String getPlayerName() {
+        return playerName;
+    }
+
+    public PlayerRole getRole() {
+        return role;
+    }
+
+    public boolean isAlive() {
+        return isAlive;
+    }
+
+    public boolean isHost() {
+        return isHost;
+    }
+
+    public boolean isReady() {
+        return isReady;
+    }
+
+    public int getVoteCount() {
+        return voteCount;
+    }
+
+    public String getTargetPlayerId() {
+        return targetPlayerId;
+    }
+
+    public void setPlayerId(String playerId) {
+        this.playerId = playerId;
+    }
+
+    public void setPlayerName(String playerName) {
+        this.playerName = playerName;
+    }
+
+    public void setTargetPlayerId(String targetPlayerId) {
+        this.targetPlayerId = targetPlayerId;
     }
 }

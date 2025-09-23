@@ -8,7 +8,7 @@ import java.util.Map;
 
 import com.example.mafiagame.game.dto.request.ExtendTimeRequest;
 import com.example.mafiagame.game.dto.response.ApiResponse;
-import com.example.mafiagame.game.dto.response.ExtendTimeResult;
+import com.example.mafiagame.global.dto.CommonResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -294,7 +294,7 @@ public class GameController {
     /**
      * 게임 상태 조회
      */
-    @GetMapping("/{gameId}")
+    @GetMapping("/{gameId}/status")
     public ResponseEntity<?> getGameStatus(@PathVariable String gameId) {
         try {
             Game game = gameService.getGame(gameId);
@@ -518,5 +518,21 @@ public class GameController {
         }
         
         return roleCounts;
+    }
+    
+    @GetMapping("/{gameId}")
+    public ResponseEntity<CommonResponse<Game>> getGame(@PathVariable String gameId) {
+        try {
+            Game game = gameService.getGame(gameId);
+            if (game == null) {
+                return ResponseEntity.badRequest()
+                    .body(CommonResponse.failure("게임을 찾을 수 없습니다."));
+            }
+            return ResponseEntity.ok(CommonResponse.success(game, "게임 조회 성공"));
+        } catch (Exception e) {
+            log.error("게임 조회 실패: {}", gameId, e);
+            return ResponseEntity.badRequest()
+                .body(CommonResponse.failure("게임 조회에 실패했습니다."));
+        }
     }
 }

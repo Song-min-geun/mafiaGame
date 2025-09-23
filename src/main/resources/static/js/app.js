@@ -159,28 +159,37 @@ function showRegister() {
 
 // --- WebSocket 연결 관련 함수 ---
 function connectWebSocket() {
-    if (stompClient && stompClient.connected) {
-        return;
-    }
-    const socket = new SockJS('/ws');
-    stompClient = Stomp.over(socket);
-
-    const token = jwtToken ? jwtToken.replace('Bearer ', '') : null;
-    if (!token) {
-        return;
-    }
-
-    stompClient.connect({ 'Authorization': 'Bearer ' + token },
-        frame => {
-            document.getElementById('connectionStatus').textContent = '연결됨';
-
-            // 연결 성공 시 개인 메시지 구독
-            subscribeToPrivateMessages();
-        },
-        error => {
-            document.getElementById('connectionStatus').textContent = '연결 실패';
+    return new Promise((resolve, reject) => {
+        if (stompClient && stompClient.connected) {
+            resolve();
+            return;
         }
-    );
+        
+        const socket = new SockJS('/ws');
+        stompClient = Stomp.over(socket);
+
+        const token = jwtToken ? jwtToken.replace('Bearer ', '') : null;
+        if (!token) {
+            reject(new Error('JWT 토큰이 없습니다.'));
+            return;
+        }
+
+        stompClient.connect({ 'Authorization': 'Bearer ' + token },
+            frame => {
+                document.getElementById('connectionStatus').textContent = '연결됨';
+                console.log('WebSocket 연결 성공');
+
+                // 연결 성공 시 개인 메시지 구독
+                subscribeToPrivateMessages();
+                resolve();
+            },
+            error => {
+                document.getElementById('connectionStatus').textContent = '연결 실패';
+                console.error('WebSocket 연결 실패:', error);
+                reject(error);
+            }
+        );
+    });
 }
 
 // 개인 메시지 구독을 위한 함수
@@ -196,6 +205,7 @@ function subscribeToPrivateMessages() {
 
             case 'POLICE_INVESTIGATION_RESULT':
                 // 경찰 조사 결과 메시지 처리
+                console.log('경찰 조사 결과 수신:', privateMessage);
                 addMessage({ senderId: 'SYSTEM', content: privateMessage.content }, 'system');
                 break;
 
@@ -329,7 +339,10 @@ async function createRoom() {
 }
 
 async function joinRoom(roomId) {
-    if (currentRoom === roomId) return;
+    if (currentRoom === roomId) {
+        console.log('이미 해당 방에 참가 중입니다.');
+        return;
+    }
     if (currentRoom) await leaveRoom();
 
     try {
@@ -340,7 +353,10 @@ async function joinRoom(roomId) {
             body: JSON.stringify({ userId: currentUser.userLoginId, userName: currentUser.nickname })
         });
 
-        if (!response.ok) throw new Error('방 입장에 실패했습니다.');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || '방 입장에 실패했습니다.');
+        }
 
         // ❗ 추가: 방 정보 저장
         const responseData = await response.json();
@@ -566,6 +582,7 @@ function subscribeToRoom(roomId) {
                 }
                 break;
 
+
             case 'VOTE_RESULT_UPDATE':
                 // 투표 결과 업데이트 처리 (최다 득표자 선정)
                 if (chatMessage.gameId === currentGameId) {
@@ -692,9 +709,14 @@ function subscribeToRoom(roomId) {
                     // 투표 페이즈인 경우 추가 로그
                     if (chatMessage.gamePhase === 'DAY_VOTING' || chatMessage.gamePhase === 'DAY_FINAL_VOTE') {
 
-                    // 투표 페이즈로 전환 시 시간 연장 기회 초기화
+                    // 투표 페이즈로 전환 시 시간 연장 기회 초기화 및 버튼 활성화
                     if (chatMessage.gamePhase === 'DAY_VOTING') {
                         timeExtensionUsed = false;
+                        // 시간 연장/단축 버튼 활성화
+                        const extendBtn = document.getElementById('extendTimeBtn');
+                        const reduceBtn = document.getElementById('reduceTimeBtn');
+                        if (extendBtn) extendBtn.disabled = false;
+                        if (reduceBtn) reduceBtn.disabled = false;
                     }
 
                     // 낮 대화 페이즈로 전환 시 시간 연장 기회 초기화
@@ -1078,6 +1100,14 @@ function updateTimerDisplay(game) {
         extendButtons.forEach(button => {
             button.disabled = !canExtend;
         });
+        
+        // 투표 페이즈에서는 시간 연장 기회가 있으면 버튼 활성화
+        if (game.gamePhase === 'DAY_VOTING' && !timeExtensionUsed) {
+            const extendBtn = document.getElementById('extendTimeBtn');
+            const reduceBtn = document.getElementById('reduceTimeBtn');
+            if (extendBtn) extendBtn.disabled = false;
+            if (reduceBtn) reduceBtn.disabled = false;
+        }
     }
 
     // ❗ 추가: 게임 상태에 따른 UI 업데이트
@@ -1138,30 +1168,10 @@ async function extendTime(seconds) {
     }
 }
 
-// ❗ 추가: 역할별 개인 메시지 구독 설정
+// ❗ 추가: 역할별 개인 메시지 구독 설정 (현재는 subscribeToPrivateMessages에서 통합 처리)
 function setupRoleBasedSubscriptions(options) {
-    if (!stompClient || !currentGame) {
-        return;
-    }
-
-    // 현재 플레이어의 역할 확인
-    const currentPlayer = currentGame.players ?
-        currentGame.players.find(p => p.playerId === currentUser.userLoginId) : null;
-
-    if (!currentPlayer) {
-        return;
-    }
-
-    // 경찰 역할인 경우에만 경찰 메시지 구독
-    if (currentPlayer.role === 'POLICE') {
-        stompClient.subscribe('/user/queue/private', function (message) {
-            const investigationMessage = JSON.parse(message.body);
-            if (investigationMessage.gameId === currentGameId) {
-                addMessage(investigationMessage, 'system');
-            }
-        });
-        console.log('경찰 역할로 경찰 메시지 구독 설정됨');
-    }
+    // 개인 메시지는 이미 subscribeToPrivateMessages에서 통합 처리됨
+    console.log('역할별 구독 설정 - 개인 메시지는 통합 처리됨');
 }
 
 // ❗ 추가: 페이즈 전환
@@ -1397,7 +1407,7 @@ function showNightActionUI(game, currentPlayer) {
                 if (player.isAlive && (canSelectSelf || !isSelf)) {
                     const option = document.createElement('div');
                     option.className = 'night-action-option';
-                    option.textContent = player.playerName;
+                    option.textContent = player.playerName + (isSelf ? ' (나)' : '');
                     option.dataset.playerId = player.playerId;
                     option.onclick = () => selectNightActionTarget(player.playerId);
                     options.appendChild(option);
@@ -1903,7 +1913,7 @@ async function apiRequest(url, options = {}) {
     }
 }
 
-window.onload = function() {
+window.onload = async function() {
     const savedToken = localStorage.getItem('jwtToken');
     const savedUser = localStorage.getItem('currentUser');
     if (savedToken && savedUser) {
@@ -1913,15 +1923,150 @@ window.onload = function() {
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('gameScreen').classList.remove('hidden');
-            connectWebSocket();
+            
+            // WebSocket 연결
+            try {
+                await connectWebSocket();
+            } catch (error) {
+                console.error('WebSocket 연결 실패:', error);
+            }
+            
             loadRooms();
             updateUserInfo();
 
             // ❗ 추가: 초기 로드 시 버튼 상태 업데이트
             updateGameButtons();
+            
+            // ❗ 추가: 사용자 세션 복구
+            await restoreUserSession();
         } catch (e) {
             console.error("Failed to parse user data from localStorage", e);
             localStorage.clear();
         }
+    }
+}
+
+// ❗ 추가: 방 정보 UI 업데이트 함수
+function updateRoomUI() {
+    if (currentRoom && currentRoomInfo) {
+        // 방 정보 표시
+        const roomInfoElement = document.getElementById('roomInfo');
+        if (roomInfoElement) {
+            roomInfoElement.innerHTML = `
+                <h3>${currentRoomInfo.roomName}</h3>
+                <p>방장: ${currentRoomInfo.hostName}</p>
+                <p>참가자: ${currentRoomInfo.participants ? currentRoomInfo.participants.length : 0}/${currentRoomInfo.maxPlayers}</p>
+            `;
+        }
+        
+        // 참가자 목록 업데이트
+        updateParticipantsList();
+        
+        // 게임 버튼 상태 업데이트
+        updateGameButtons();
+    }
+}
+
+// ❗ 추가: 사용자 세션 복구 함수
+async function restoreUserSession() {
+    if (!currentUser || !jwtToken) return;
+    
+    try {
+        console.log('사용자 세션 복구 시작...');
+        
+        // 서버에서 사용자 세션 정보 조회
+        const response = await fetch('/api/users/session', {
+            method: 'GET',
+            headers: { 'Authorization': jwtToken }
+        });
+        
+        if (response.ok) {
+            const sessionData = await response.json();
+            console.log('세션 데이터:', sessionData);
+            
+            if (sessionData.success && sessionData.data) {
+                const { roomId, gameId } = sessionData.data;
+                
+                if (roomId) {
+                    console.log('방 복구 시작:', roomId);
+                    
+                    // 방 정보 복구
+                    currentRoom = roomId;
+                    
+                    // WebSocket 연결 확인 및 재연결
+                    if (!stompClient || !stompClient.connected) {
+                        console.log('WebSocket 재연결 중...');
+                        try {
+                            await connectWebSocket();
+                            console.log('WebSocket 재연결 완료');
+                        } catch (error) {
+                            console.error('WebSocket 재연결 실패:', error);
+                        }
+                    }
+                    
+                    // 방 참가 (WebSocket 연결 포함)
+                    await joinRoom(roomId);
+                    
+                    // 방 정보 조회 및 UI 업데이트
+                    try {
+                        const roomResponse = await fetch(`/api/chat/rooms/${roomId}`, {
+                            method: 'GET',
+                            headers: { 'Authorization': jwtToken }
+                        });
+                        
+                        if (roomResponse.ok) {
+                            const roomData = await roomResponse.json();
+                            if (roomData.success) {
+                                currentRoomInfo = roomData.data;
+                                updateRoomUI();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('방 정보 조회 실패:', error);
+                    }
+                    
+                    if (gameId) {
+                        console.log('게임 복구 시작:', gameId);
+                        
+                        // 게임 정보 복구
+                        currentGameId = gameId;
+                        isGameStarted = true;
+                        
+                        // 게임 상태 조회
+                        const gameResponse = await fetch(`/api/game/${gameId}`, {
+                            method: 'GET',
+                            headers: { 'Authorization': jwtToken }
+                        });
+                        
+                        if (gameResponse.ok) {
+                            const gameData = await gameResponse.json();
+                            if (gameData.success) {
+                                currentGame = gameData.data;
+                                updateGameUI(currentGame);
+                                startGameTimer();
+                                
+                                // 게임 관련 WebSocket 구독 재설정
+                                setupRoleBasedSubscriptions();
+                                
+                                // 게임 상태에 따른 UI 업데이트
+                                if (currentGame.gamePhase === 'NIGHT_ACTION') {
+                                    showNightActionUI();
+                                } else if (currentGame.gamePhase === 'DAY_VOTING' || currentGame.gamePhase === 'DAY_FINAL_VOTE') {
+                                    showVotingUI();
+                                }
+                                
+                                console.log('게임 복구 완료');
+                            }
+                        }
+                    }
+                    
+                    console.log('세션 복구 완료');
+                }
+            }
+        } else {
+            console.log('세션 정보 없음 - 로그인 필요');
+        }
+    } catch (error) {
+        console.error('사용자 세션 복구 실패:', error);
     }
 }

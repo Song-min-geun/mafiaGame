@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -17,6 +18,7 @@ import lombok.*;
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ChatRoom {
     @Id
     @Column(name = "room_id", nullable = false)
@@ -27,6 +29,9 @@ public class ChatRoom {
     
     @Column(name = "host_id", nullable = false)
     private String hostId;
+    
+    @Column(name = "host_name", nullable = false)
+    private String hostName;
     
     @Column(name = "max_players", nullable = false)
     private int maxPlayers;
@@ -44,7 +49,8 @@ public class ChatRoom {
     private LocalDateTime updatedAt;
 
     @Transient
-    private List<ChatUser> participants;
+    @Builder.Default
+    private List<ChatUser> participants = new ArrayList<>();
     
     @Transient
     private List<String> gameHistoryIds;  // 게임 히스토리 ID 목록
@@ -108,5 +114,38 @@ public class ChatRoom {
     public void setCreatedAt() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+    }
+
+    // 추가 필요한 메서드들
+    public String getHostId() {
+        return hostId;
+    }
+
+    public void setHostId(String hostId) {
+        this.hostId = hostId;
+    }
+
+    public String getHostName() {
+        return hostName;
+    }
+
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
+    }
+
+    public int getMaxPlayers() {
+        return maxPlayers;
+    }
+
+    public void setMaxPlayers(int maxPlayers) {
+        this.maxPlayers = maxPlayers;
+    }
+
+    public List<ChatUser> getParticipants() {
+        return participants;
+    }
+
+    public void setParticipants(List<ChatUser> participants) {
+        this.participants = participants;
     }
 }
