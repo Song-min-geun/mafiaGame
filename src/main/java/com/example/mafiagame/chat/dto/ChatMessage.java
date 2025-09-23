@@ -2,12 +2,10 @@ package com.example.mafiagame.chat.dto;
 
 import java.util.Map;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,12 +26,12 @@ public class ChatMessage {
     }
     
     private MessageType type;
+    // Getter 메서드들
     private String roomId;
     private String senderId;
     private String senderName;
     private String content;
     private Long timestamp;
-    
-    // ❗ 추가: 구조화된 데이터 필드
+
     private Map<String, Object> data;
 }

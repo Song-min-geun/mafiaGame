@@ -1,10 +1,9 @@
-// src/main/java/com/example/mafiagame/game/service/GameService.java
-
 package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.*;
 import com.example.mafiagame.game.dto.request.NightResultMessageDto;
 import com.example.mafiagame.game.dto.request.PoliceResultMessage;
+import com.example.mafiagame.global.service.RedisService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -22,8 +20,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GameService {
 
-    private final Map<String, Game> games = new ConcurrentHashMap<>();
+    private final Map<String, Game> games = new ConcurrentHashMap<>(); // 메모리 캐시 (백업용)
     private final Map<String, Set<String>> deadPlayersChatRooms = new ConcurrentHashMap<>();
+    private final RedisService redisService;
 
     @Autowired
     private GameTimerService gameTimerService;
@@ -36,16 +35,24 @@ public class GameService {
                 .gameId(gameId)
                 .roomId(roomId)
                 .status(GameStatus.WAITING)
-                .players(new Players(playerList)) // Players 객체로 감싸서 생성
+                .players(playerList)
                 .currentPhase(0)
                 .isDay(true)
-                .votes(new HashMap<>())
-                .nightActions(new HashMap<>())
                 .maxPlayers(maxPlayers)
                 .hasDoctor(hasDoctor)
                 .hasPolice(hasPolice)
                 .build();
+
+        // GamePlayer에 Game 참조 설정
+        for (GamePlayer player : playerList) {
+            player.setGame(game);
+        }
+
+        // Redis에 저장
+        redisService.saveGame(game);
+        // 메모리 캐시에도 저장 (백업용)
         games.put(gameId, game);
+        
         gameTimerService.registerGame(game);
         log.info("게임 생성됨: {}", gameId);
         return game;
@@ -56,8 +63,7 @@ public class GameService {
         if (game == null) throw new RuntimeException("게임을 찾을 수 없습니다: " + gameId);
         if (game.getPlayers().size() < 4) throw new RuntimeException("최소 4명의 플레이어가 필요합니다.");
 
-        int mafiaCount = Math.max(1, game.getPlayers().size() / 3);
-        game.getPlayers().assignRoles(mafiaCount, game.isHasDoctor(), game.isHasPolice());
+        assignRoles(game);
 
         game.setStatus(GameStatus.STARTING);
         game.setStartTime(LocalDateTime.now());
@@ -65,15 +71,15 @@ public class GameService {
         game.setIsDay(true);
         game.setGamePhase(GamePhase.DAY_DISCUSSION);
         game.setPhaseStartTime(LocalDateTime.now());
-        game.setRemainingTime(60);
-
-        for (GamePlayer player : game.getPlayers().getAsList()) {
-            game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
-        }
+//        game.setRemainingTime(60);
+//
+//        for (GamePlayer player : game.getPlayers()) {
+//            game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+//        }
 
         gameTimerService.registerGame(game);
         gameTimerService.startGameTimer(gameId);
-        log.info("게임 시작됨: {} (낮 대화: {}초)", gameId, game.getRemainingTime());
+        log.info("게임 시작됨: {} (낮 대화: {}초)", gameId, 60);
         return game;
     }
 
@@ -81,18 +87,27 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) return;
 
-        GamePlayer player = game.getPlayers().findById(playerId);
-        GamePlayer target = game.getPlayers().findById(targetId);
+        GamePlayer player = findActivePlayerById(game, playerId);
+        GamePlayer target = findActivePlayerById(game, targetId);
 
-        if (player == null || !player.isAlive()) throw new IllegalArgumentException("플레이어가 유효하지 않거나 생존하지 않습니다: " + playerId);
-        if (player.getRole() == PlayerRole.CITIZEN) throw new IllegalArgumentException("시민은 밤 액션을 할 수 없습니다: " + player.getPlayerName());
+        if (player == null) throw new IllegalArgumentException("플레이어가 유효하지 않거나 생존하지 않습니다: " + playerId);
+        if (player.getRole() == PlayerRole.CITIZEN) throw new IllegalArgumentException("시민은 밤 액션을 할 수 없습니다.");
 
+        NightAction nightAction = NightAction.builder()
+                .game(game)
+                .actorId(playerId)
+                .targetId(targetId)
+                .build();
+        game.getNightActions().add(nightAction);
+
+        // 경찰 조사는 즉시 결과 전송
         if (player.getRole() == PlayerRole.POLICE && target != null) {
             sendPoliceInvestigationResult(game, player, target);
+        } else {
+            // 마피아와 의사는 액션만 저장하고 결과는 밤이 끝날 때 공개
+            sendNightActionConfirmation(game, player, targetId);
         }
-
-        game.getNightActions().put(playerId, targetId);
-        sendNightActionResult(game, player, targetId);
+        
         log.info("밤 액션 저장: {} ({}) -> {}", player.getPlayerName(), player.getRole(), targetId);
     }
 
@@ -100,24 +115,27 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) return;
 
-        Map<String, String> nightActions = game.getNightActions();
-        game.getPlayers().resetVoteCounts();
+        List<NightAction> nightActions = game.getNightActions();
+        resetVoteCounts(game);
 
         String mafiaTarget = null;
         String doctorTarget = null;
 
-        for (GamePlayer player : game.getPlayers().getAsList()) {
-            if (!player.isAlive()) continue;
-            String targetId = nightActions.get(player.getPlayerId());
-            if (targetId == null) continue;
-            if (player.getRole() == PlayerRole.MAFIA) mafiaTarget = targetId;
-            if (player.getRole() == PlayerRole.DOCTOR) doctorTarget = targetId;
+        for (NightAction action : nightActions) {
+            GamePlayer actor = findActivePlayerById(game, action.getActorId());
+            if (actor == null) continue;
+
+            if (actor.getRole() == PlayerRole.MAFIA) {
+                mafiaTarget = action.getTargetId();
+            } else if (actor.getRole() == PlayerRole.DOCTOR) {
+                doctorTarget = action.getTargetId();
+            }
         }
 
         if (mafiaTarget != null && !mafiaTarget.equals(doctorTarget)) {
-            GamePlayer target = game.getPlayers().findById(mafiaTarget);
-            if (target != null && target.isAlive()) {
-                target.setIsAlive(false);
+            GamePlayer target = findActivePlayerById(game, mafiaTarget);
+            if (target != null) {
+                target.setAlive(false);
                 log.info("플레이어 사망: {}", target.getPlayerName());
                 gameTimerService.addDeadPlayerToChatRoom(game.getRoomId(), mafiaTarget);
             }
@@ -136,7 +154,7 @@ public class GameService {
 
     private void sendNightActionResult(Game game, GamePlayer player, String targetId) {
         try {
-            GamePlayer target = game.getPlayers().findById(targetId);
+            GamePlayer target = findActivePlayerById(game, targetId);
             if (target == null) return;
 
             Map<String, Object> actionMessage = new HashMap<>();
@@ -157,13 +175,36 @@ public class GameService {
         }
     }
 
+    private void sendNightActionConfirmation(Game game, GamePlayer player, String targetId) {
+        try {
+            GamePlayer target = findActivePlayerById(game, targetId);
+            if (target == null) return;
+
+            Map<String, Object> confirmationMessage = new HashMap<>();
+            confirmationMessage.put("type", "NIGHT_ACTION_CONFIRMATION");
+            confirmationMessage.put("gameId", game.getGameId());
+            confirmationMessage.put("roomId", game.getRoomId());
+            confirmationMessage.put("playerId", player.getPlayerId());
+            confirmationMessage.put("targetName", target.getPlayerName());
+            confirmationMessage.put("senderId", "SYSTEM");
+            confirmationMessage.put("senderName", "시스템");
+            confirmationMessage.put("timestamp", LocalDateTime.now().toString());
+            confirmationMessage.put("content", String.format("%s님을 선택했습니다. 결과는 밤이 끝날 때 공개됩니다.", target.getPlayerName()));
+
+            messagingTemplate.convertAndSendToUser(player.getPlayerId(), "/queue/private", confirmationMessage);
+            log.info("밤 액션 확인 메시지 전송: {} -> {}", player.getPlayerName(), target.getPlayerName());
+        } catch (Exception e) {
+            log.error("밤 액션 확인 메시지 전송 실패: {}", game.getGameId(), e);
+        }
+    }
+
     private void sendNightResultMessage(Game game, String mafiaTarget, String doctorTarget) {
         try {
             String resultMessage = "이번 밤에 아무 일도 일어나지 않았습니다.";
             String killedPlayerId = null;
 
             if (mafiaTarget != null && !mafiaTarget.equals(doctorTarget)) {
-                GamePlayer target = game.getPlayers().findById(mafiaTarget);
+                GamePlayer target = findActivePlayerById(game, mafiaTarget);
                 if (target != null) {
                     killedPlayerId = target.getPlayerId();
                     resultMessage = String.format("%s님이 살해되었습니다.", target.getPlayerName());
@@ -192,13 +233,19 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) return;
 
-        GamePlayer voter = game.getPlayers().findById(voterId);
-        if (voter == null || !voter.isAlive()) {
+        GamePlayer voter = findActivePlayerById(game, voterId);
+        if (voter == null) {
             return; // 죽은 플레이어는 투표 불가
         }
 
-        game.getVotes().put(voterId, targetId);
-        GamePlayer target = game.getPlayers().findById(targetId);
+        Vote vote = Vote.builder()
+                .game(game)
+                .voterId(voterId)
+                .targetId(targetId)
+                .build();
+        game.getVotes().add(vote);
+
+        GamePlayer target = findActivePlayerById(game, targetId);
         if (target != null) {
             target.setVoteCount(target.getVoteCount() + 1);
         }
@@ -218,26 +265,30 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) throw new IllegalArgumentException("게임을 찾을 수 없습니다: " + gameId);
 
-        GamePlayer voter = game.getPlayers().findById(playerId);
-        if (voter == null || !voter.isAlive()) throw new IllegalArgumentException("투표자가 존재하지 않거나 생존하지 않습니다: " + playerId);
+        GamePlayer voter = findActivePlayerById(game, playerId);
+        if (voter == null) throw new IllegalArgumentException("투표자가 존재하지 않거나 생존하지 않습니다: " + playerId);
 
         String votedPlayerId = getVotedPlayerId(gameId);
-        if (votedPlayerId != null && votedPlayerId.equals(playerId)) throw new IllegalArgumentException("최다 득표자는 자신에게 투표할 수 없습니다: " + voter.getPlayerName());
+        if (votedPlayerId != null && votedPlayerId.equals(playerId)) throw new IllegalArgumentException("최다 득표자는 자신에게 투표할 수 없습니다.");
 
-        game.getFinalVotes().put(playerId, vote);
+        FinalVote finalVote = FinalVote.builder()
+                .game(game)
+                .voterId(playerId)
+                .vote(vote)
+                .build();
+        game.getFinalVotes().add(finalVote);
+
         log.info("최종 투표 기록: {} -> {}", voter.getPlayerName(), vote);
     }
 
     public String getVotedPlayerId(String gameId) {
         Game game = games.get(gameId);
         if (game == null) return null;
-        if (game.getVotedPlayerId() != null) return game.getVotedPlayerId();
 
-        Map<String, String> votes = game.getVotes();
-        if (votes.isEmpty()) return null;
+        Map<String, Long> voteCounts = game.getVotes().stream()
+                .collect(Collectors.groupingBy(Vote::getTargetId, Collectors.counting()));
 
-        Map<String, Long> voteCounts = votes.values().stream()
-                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+        if (voteCounts.isEmpty()) return null;
 
         long maxVotes = Collections.max(voteCounts.values());
 
@@ -256,9 +307,9 @@ public class GameService {
         String eliminatedPlayerId = getVotedPlayerId(gameId);
 
         if (eliminatedPlayerId != null) {
-            GamePlayer eliminated = game.getPlayers().findById(eliminatedPlayerId);
+            GamePlayer eliminated = findActivePlayerById(game, eliminatedPlayerId);
             if (eliminated != null) {
-                eliminated.setIsAlive(false);
+                eliminated.setAlive(false);
                 log.info("투표로 제거됨: {}", eliminated.getPlayerName());
                 addDeadPlayerToChatRoom(game.getRoomId(), eliminatedPlayerId);
             }
@@ -296,6 +347,15 @@ public class GameService {
     }
 
     public Game getGameByRoomId(String roomId) {
+        // Redis에서 먼저 조회
+        Game game = redisService.getGameByRoomId(roomId);
+        if (game != null) {
+            // 메모리 캐시도 업데이트
+            games.put(game.getGameId(), game);
+            return game;
+        }
+        
+        // Redis에 없으면 메모리 캐시에서 조회
         return games.values().stream()
                 .filter(g -> g.getRoomId().equals(roomId))
                 .findFirst()
@@ -306,7 +366,7 @@ public class GameService {
         try {
             String eliminatedPlayerName = null;
             if (eliminatedPlayerId != null) {
-                GamePlayer eliminated = game.getPlayers().findById(eliminatedPlayerId);
+                GamePlayer eliminated = findActivePlayerById(game, eliminatedPlayerId);
                 if (eliminated != null) {
                     eliminatedPlayerName = eliminated.getPlayerName();
                 }
@@ -316,7 +376,7 @@ public class GameService {
             message.put("type", "VOTE_RESULT_UPDATE");
             message.put("gameId", game.getGameId());
             message.put("roomId", game.getRoomId());
-            message.put("players", game.getPlayers().getAsList());
+            message.put("players", game.getPlayers());
             message.put("eliminatedPlayerId", eliminatedPlayerId);
             message.put("eliminatedPlayerName", eliminatedPlayerName);
 
@@ -353,9 +413,8 @@ public class GameService {
         Game game = games.get(gameId);
         if (game == null) return null;
 
-        Map<String, Long> aliveCounts = game.getPlayers().countAliveRoles();
-        long aliveMafia = aliveCounts.getOrDefault("MAFIA", 0L);
-        long aliveCitizens = aliveCounts.getOrDefault("CITIZEN_TEAM", 0L);
+        long aliveMafia = game.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA).count();
+        long aliveCitizens = game.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA).count();
 
         if (aliveMafia >= aliveCitizens && aliveCitizens > 0) {
             return "MAFIA";
@@ -367,7 +426,22 @@ public class GameService {
     }
 
     public Game getGame(String gameId) {
-        return games.get(gameId);
+        // Redis에서 먼저 조회
+        Game game = redisService.getGame(gameId);
+        if (game != null) {
+            // 메모리 캐시도 업데이트
+            games.put(gameId, game);
+            return game;
+        }
+        
+        // Redis에 없으면 메모리 캐시에서 조회
+        game = games.get(gameId);
+        if (game != null) {
+            // Redis에 다시 저장
+            redisService.saveGame(game);
+        }
+        
+        return game;
     }
 
     public Game switchPhase(String gameId) {
@@ -380,29 +454,29 @@ public class GameService {
         switch (game.getGamePhase()) {
             case DAY_DISCUSSION:
                 game.setGamePhase(GamePhase.DAY_VOTING);
-                game.setRemainingTime(30);
+//                game.setRemainingTime(30);
                 break;
             case DAY_VOTING:
                 game.setGamePhase(GamePhase.DAY_FINAL_DEFENSE);
-                game.setRemainingTime(10);
+//                game.setRemainingTime(10);
                 break;
             case DAY_FINAL_DEFENSE:
                 game.setGamePhase(GamePhase.DAY_FINAL_VOTE);
-                game.setRemainingTime(15);
+//                game.setRemainingTime(15);
                 break;
             case DAY_FINAL_VOTE:
                 game.setGamePhase(GamePhase.NIGHT_ACTION);
                 game.setIsDay(false);
-                game.setRemainingTime(30);
+//                game.setRemainingTime(30);
                 break;
             case NIGHT_ACTION:
                 game.setCurrentPhase(game.getCurrentPhase() + 1);
                 game.setGamePhase(GamePhase.DAY_DISCUSSION);
-                for (GamePlayer player : game.getPlayers().getAsList()) {
-                    game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
-                }
+//                for (GamePlayer player : game.getPlayers()) {
+//                    game.getTimeExtensionsUsed().put(player.getPlayerId(), false);
+//                }
                 game.setIsDay(true);
-                game.setRemainingTime(60);
+//                game.setRemainingTime(60);
                 break;
         }
         game.setPhaseStartTime(LocalDateTime.now());
@@ -412,5 +486,45 @@ public class GameService {
     public void deleteGame(String gameId) {
         games.remove(gameId);
         log.info("게임 삭제됨: {}", gameId);
+    }
+
+    private GamePlayer findActivePlayerById(Game game, String playerId) {
+        if (playerId == null) return null;
+        return game.getPlayers().stream()
+                .filter(p -> p.getPlayerId().equals(playerId) && p.isAlive())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void assignRoles(Game game) {
+        List<GamePlayer> players = game.getPlayers();
+        int playerCount = players.size();
+        int mafiaCount = Math.max(1, playerCount / 3);
+
+        List<PlayerRole> roles = new ArrayList<>();
+        for (int i = 0; i < mafiaCount; i++) {
+            roles.add(PlayerRole.MAFIA);
+        }
+        if (game.isHasDoctor()) {
+            roles.add(PlayerRole.DOCTOR);
+        }
+        if (game.isHasPolice()) {
+            roles.add(PlayerRole.POLICE);
+        }
+        while (roles.size() < playerCount) {
+            roles.add(PlayerRole.CITIZEN);
+        }
+
+        Collections.shuffle(roles);
+
+        for (int i = 0; i < playerCount; i++) {
+            players.get(i).setRole(roles.get(i));
+        }
+    }
+
+    private void resetVoteCounts(Game game) {
+        for (GamePlayer player : game.getPlayers()) {
+            player.setVoteCount(0);
+        }
     }
 }
