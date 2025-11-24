@@ -79,7 +79,7 @@ public class Players {
 
         for (int i = 0; i < playerCount; i++){
             players.get(i).setRole(roles.get(i));
-            players.get(i).setIsAlive(true);
+            players.get(i).setAlive(true);
         }
     }
 

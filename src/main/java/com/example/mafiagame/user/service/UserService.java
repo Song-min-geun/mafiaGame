@@ -33,7 +33,7 @@ public class UserService {
         if (userRepository.findByUserLoginId(request.userLoginId()).isPresent()) {
             throw new RuntimeException("이미 존재하는 아이디입니다.");
         }
-        
+
         User user = User.builder()
                 .userLoginId(request.userLoginId())
                 .userLoginPassword(passwordEncoder.encode(request.userLoginPassword()))
@@ -48,14 +48,12 @@ public class UserService {
     public String login(LoginRequest request) {
         try {
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.userLoginId(), request.userLoginPassword())
-            );
+                    new UsernamePasswordAuthenticationToken(request.userLoginId(), request.userLoginPassword()));
         } catch (BadCredentialsException e) {
             throw new RuntimeException("아이디 또는 비밀번호가 일치하지 않습니다.");
         }
         return jwtUtil.generateToken(request.userLoginId());
     }
-
 
     // 유저 상세정보 확인 ( 유저용 )
     @Transactional(readOnly = true)
@@ -64,7 +62,6 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("해당 ID의 사용자를 찾을 수 없습니다: " + userId));
         return new UserDetailForUser(user.getNickname());
     }
-
 
     // 유저 상세정보 ( 관리자용 )
     @Transactional(readOnly = true)
@@ -91,5 +88,21 @@ public class UserService {
 
         String encodedNewPassword = passwordEncoder.encode(newPassword);
         user.updateUserLoginPassword(encodedNewPassword);
+    }
+
+    @Transactional
+    public void createDummyUsers(int count) {
+        for (int i = 1; i <= count; i++) {
+            String dummyId = "player" + i;
+            if (userRepository.findByUserLoginId(dummyId).isEmpty()) {
+                User user = User.builder()
+                        .userLoginId(dummyId)
+                        .userLoginPassword(passwordEncoder.encode("password"))
+                        .nickname("플레이어" + i)
+                        .userRole(USER)
+                        .build();
+                userRepository.save(user);
+            }
+        }
     }
 }

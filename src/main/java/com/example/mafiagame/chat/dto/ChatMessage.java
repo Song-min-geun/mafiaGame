@@ -12,12 +12,12 @@ import lombok.*;
 public class ChatMessage {
     
     public enum MessageType {
-        CREATED,
+        ROOM_CREATED,
         CHAT, 
-        USER_JOINED,    // 사용자 입장 (구조화된 데이터 포함)
-        USER_LEFT,      // 사용자 퇴장 (구조화된 데이터 포함)
-        HOST_CHANGED,   // 방장 변경 (구조화된 데이터 포함)
-        GAME_START, 
+        USER_JOINED,    // 사용자 입장
+        USER_LEFT,      // 사용자 퇴장
+        HOST_CHANGED,   // 방장 변경
+        GAME_START,
         GAME_END, 
         PHASE_CHANGE, 
         VOTE, 
@@ -30,6 +30,7 @@ public class ChatMessage {
     private String roomId;
     private String senderId;
     private String senderName;
+    private String recipient;
     private String content;
     private Long timestamp;
 

@@ -99,8 +99,9 @@ public class Game {
     @Transient
     private LocalDateTime phaseStartTime;
 
-    @Transient
     private String votedPlayerId;
+
+
 
     // 시간 연장 관련 필드들
     @Transient

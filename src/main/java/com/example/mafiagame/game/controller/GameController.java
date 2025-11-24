@@ -1,33 +1,23 @@
 package com.example.mafiagame.game.controller;
 
-import java.security.Principal;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import com.example.mafiagame.game.dto.request.ExtendTimeRequest;
-import com.example.mafiagame.game.dto.response.ApiResponse;
-import com.example.mafiagame.global.dto.CommonResponse;
+import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.service.GameService;
+import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.service.UserService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePlayer;
-import com.example.mafiagame.game.domain.PlayerRole;
-import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.game.service.GameTimerService;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.security.Principal;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -36,503 +26,77 @@ import lombok.extern.slf4j.Slf4j;
 public class GameController {
 
     private final GameService gameService;
+    private final UserService userService;
     private final SimpMessagingTemplate messagingTemplate;
-    private final GameTimerService gameTimerService;
 
-    /**
-     * 게임 생성
-     */
+    private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        if (sessionAttributes != null && sessionAttributes.get("user") instanceof Principal) {
+            return (Principal) sessionAttributes.get("user");
+        }
+        return null;
+    }
+
     @PostMapping("/create")
     public ResponseEntity<?> createGame(@RequestBody Map<String, Object> request) {
-        try {
-            log.info("🔍 게임 생성 요청 받음: {}", request);
+        String roomId = (String) request.get("roomId");
+        List<Map<String, Object>> playersData = (List<Map<String, Object>>) request.get("players");
 
-            String roomId = (String) request.get("roomId");
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> playersData = (List<Map<String, Object>>) request.get("players");
+        List<GamePlayer> players = playersData.stream().map(playerData -> {
+            User user = userService.getUserByLoginId((String) playerData.get("playerId"));
+            return GamePlayer.builder()
+                    .user(user)
+                    .isHost((Boolean) playerData.getOrDefault("isHost", false))
+                    .isAlive(true)
+                    .build();
+        }).collect(Collectors.toList());
 
-            log.info("🔍 방 ID: {}, 플레이어 수: {}", roomId, playersData.size());
+        Game game = gameService.createGame(roomId, players);
+        gameService.assignRoles(game.getGameId()); // 역할 배정 및 메시지 전송
+        gameService.startGame(game.getGameId());
 
-            // GamePlayer 객체로 변환
-            List<GamePlayer> players = new ArrayList<>();
-            for (Map<String, Object> playerData : playersData) {
-                log.info("🔍 플레이어 데이터: {}", playerData);
+        messagingTemplate.convertAndSend("/topic/room." + roomId, Map.of("type", "GAME_START", "game", game));
 
-                // ❗ 수정: null 체크 추가
-                Boolean isHostValue = (Boolean) playerData.get("isHost");
-                boolean isHost = isHostValue != null ? isHostValue : false;
-
-                GamePlayer player = GamePlayer.builder()
-                        .playerId((String) playerData.get("playerId"))
-                        .playerName((String) playerData.get("playerName"))
-                        .isHost(isHost)
-                        .isAlive(true)
-                        .isReady(false)
-                        .build();
-                players.add(player);
-                log.info("🔍 GamePlayer 생성됨: {}", player);
-            }
-
-            int maxPlayers = (Integer) request.get("maxPlayers");
-            boolean hasDoctor = (Boolean) request.get("hasDoctor");
-            log.info("의사가 존재하는가? : {}", hasDoctor);
-            boolean hasPolice = (Boolean) request.get("hasPolice");
-            log.info("경찰이 존재하는가 ? : {}", hasPolice);
-
-            Game game = gameService.createGame(roomId, players, maxPlayers, hasDoctor, hasPolice);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("gameId", game.getGameId());
-            response.put("message", "게임이 생성되었습니다.");
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("게임 생성 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "게임 생성에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
+        return ResponseEntity.ok(Map.of("success", true, "gameId", game.getGameId()));
     }
 
-    /**
-     * 게임 시작
-     */
-    @PostMapping("/start")
-    public ResponseEntity<?> startGame(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            Game game = gameService.startGame(gameId);
-
-            // 게임 시작 메시지를 방에 브로드캐스트
-            Map<String, Object> gameStartMessage = new HashMap<>();
-            gameStartMessage.put("type", "GAME_START");
-            gameStartMessage.put("gameId", gameId);
-            gameStartMessage.put("roomId", game.getRoomId());
-            gameStartMessage.put("players", game.getPlayers());
-            gameStartMessage.put("status", game.getStatus());
-            gameStartMessage.put("currentPhase", game.getCurrentPhase());
-            gameStartMessage.put("isDay", game.isDay());
-            gameStartMessage.put("dayTimeLimit", game.getDayTimeLimit());
-            gameStartMessage.put("nightTimeLimit", game.getNightTimeLimit());
-            gameStartMessage.put("remainingTime", game.getRemainingTime());
-
-            log.info("🔔 게임 시작 메시지 브로드캐스트: {}", gameStartMessage);
-
-            // WebSocket으로 게임 시작 메시지 전송
-            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), gameStartMessage);
-
-            // 시스템 메시지도 함께 전송
-            Map<String, Object> systemMessage = new HashMap<>();
-            systemMessage.put("type", "SYSTEM");
-            systemMessage.put("senderId", "SYSTEM");
-            systemMessage.put("content", "게임이 시작되었습니다!");
-            systemMessage.put("timestamp", java.time.LocalDateTime.now().toString());
-
-            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), systemMessage);
-
-            // 역할 배정 메시지 전송
-            sendRoleAssignmentMessages(game);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "게임이 시작되었습니다.");
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("게임 시작 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "게임 시작에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-
-    /**
-     * 밤 액션 처리 (WebSocket)
-     */
-    @MessageMapping("/game.nightAction")
-    public void processNightAction(@Payload Map<String, Object> payload, Principal principal) {
-        if (principal == null) {
-            log.error("Principal이 null입니다.");
-            return;
-        }
-
-        String gameId = (String) payload.get("gameId");
-        String playerId = principal.getName();
-        String targetId = (String) payload.get("targetId");
-
-        try {
-            // 밤 액션을 서비스에 기록하고, 모든 액션이 완료되었는지 확인하는 로직은 Service 레이어로 위임합니다.
-            gameService.processNightAction(gameId, playerId, targetId);
-
-            // 액션이 성공적으로 접수되었음을 알리는 메시지 (선택 사항)
-            Map<String, Object> actionMessage = new HashMap<>();
-            actionMessage.put("type", "NIGHT_ACTION_COMPLETE");
-            actionMessage.put("playerId", playerId);
-
-            Game game = gameService.getGame(gameId);
-            if (game != null) {
-                // 이 메시지는 "당신의 액션이 기록되었습니다" 정도의 의미입니다.
-                messagingTemplate.convertAndSendToUser(playerId, "/queue/private", actionMessage);
-            }
-
-        } catch (Exception e) {
-            log.error("밤 액션 처리 실패", e);
-        }
-    }
-
-    /**
-     * 최종 투표 처리 (WebSocket)
-     */
     @MessageMapping("/game.vote")
-    public void handleVote(@Payload Map<String, Object> payload) {
-        try {
-            String type = (String) payload.get("type");
-
-            if ("FINAL_VOTE".equals(type)) {
-                // 최종 투표 처리
-                String gameId = (String) payload.get("gameId");
-                String playerId = (String) payload.get("playerId");
-                String vote = (String) payload.get("vote");
-
-                log.info("🔍 최종 투표 요청: gameId={}, playerId={}, vote={}", gameId, playerId, vote);
-
-                // 최종 투표 처리
-                gameService.processFinalVote(gameId, playerId, vote);
-
-            } else {
-                // 기존 투표 처리
-                String gameId = (String) payload.get("gameId");
-                String voterId = (String) payload.get("voterId");
-                String targetId = (String) payload.get("targetId");
-
-                log.info("🔍 일반 투표 요청: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
-
-                gameService.vote(gameId, voterId, targetId);
-
-                // 투표 완료 메시지 브로드캐스트
-                Game game = gameService.getGame(gameId);
-                if (game != null) {
-                    Map<String, Object> voteMessage = new HashMap<>();
-                    voteMessage.put("type", "SYSTEM");
-                    voteMessage.put("gameId", gameId);
-                    voteMessage.put("voterId", voterId);
-                    voteMessage.put("targetId", targetId);
-
-                    messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), voteMessage);
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("투표 처리 실패", e);
-        }
+    public void vote(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
+        Principal principal = getPrincipal(accessor);
+        if (principal == null) return;
+        gameService.vote(payload.get("gameId"), principal.getName(), payload.get("targetId"));
     }
 
-    /**
-     * 투표 처리 (REST API)
-     */
-    @PostMapping("/vote")
-    public ResponseEntity<?> processVote(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            String voterId = request.get("voterId");
-            String targetId = request.get("targetId");
-
-            log.info("🔍 투표 요청: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
-
-            gameService.vote(gameId, voterId, targetId);
-
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "투표가 완료되었습니다.");
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("투표 처리 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "투표에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
+    @MessageMapping("/game.finalVote")
+    public void finalVote(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
+        Principal principal = getPrincipal(accessor);
+        if (principal == null) return;
+        gameService.finalVote(payload.get("gameId"), principal.getName(), payload.get("voteChoice"));
     }
 
-    /**
-     * 밤 액션 처리 (REST API)
-     */
-    @PostMapping("/night-action")
-    public ResponseEntity<?> processNightAction(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            String playerId = request.get("playerId");
-            String targetId = request.get("targetId");
-
-            log.info("🔍 밤 액션 요청: gameId={}, playerId={}, targetId={}", gameId, playerId, targetId);
-
-            gameService.processNightAction(gameId, playerId, targetId);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "밤 액션이 완료되었습니다.");
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("밤 액션 처리 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "밤 액션에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
+    @MessageMapping("/game.nightAction")
+    public void nightAction(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
+        Principal principal = getPrincipal(accessor);
+        if (principal == null) return;
+        gameService.nightAction(payload.get("gameId"), principal.getName(), payload.get("targetId"));
     }
 
-    /**
-     * 게임 상태 조회
-     */
     @GetMapping("/{gameId}/status")
     public ResponseEntity<?> getGameStatus(@PathVariable String gameId) {
-        try {
-            Game game = gameService.getGame(gameId);
-            if (game == null) {
-                return ResponseEntity.notFound().build();
-            }
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("game", game);
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("게임 상태 조회 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "게임 상태 조회에 실패했습니다.");
-            return ResponseEntity.badRequest().body(response);
-        }
+        Game game = gameService.getGame(gameId);
+        return ResponseEntity.ok(Map.of("success", true, "game", game));
     }
 
-    /**
-     * 시간 연장, 단축
-     */
+    @PostMapping("/update-time")
+    public ResponseEntity<?> updateTime(@RequestBody Map<String, Object> payload) {
+        String gameId = (String) payload.get("gameId");
+        String playerId = (String) payload.get("playerId");
+        int seconds = (Integer) payload.get("seconds");
 
-    @PostMapping("/extend-time")
-    public ResponseEntity<ApiResponse<Void>> extendTime(@RequestBody ExtendTimeRequest request) {
-        try {
-            boolean success = gameTimerService.extendTime(request.gameId(), request.playerId(), request.seconds());
-
-            if (success) {
-                // 성공 시, 데이터 없이 성공 메시지만 반환 (HTTP 200 OK)
-                return ResponseEntity.ok(ApiResponse.success("시간 조절 요청이 성공적으로 처리되었습니다.", null));
-            } else {
-                // 서비스 로직 상 실패 시, 실패 메시지 반환 (HTTP 400 Bad Request)
-                return ResponseEntity.badRequest()
-                        .body(ApiResponse.fail("시간 연장/단축에 실패했습니다. 게임 또는 플레이어 정보를 확인해주세요."));
-            }
-
-        } catch (Exception e) {
-            log.error("시간 연장/단축 실패", e);
-            // 예상치 못한 서버 오류 발생 시 (HTTP 500 Internal Server Error)
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.fail("서버 오류로 시간 조절에 실패했습니다."));
+        boolean success = gameService.updateTime(gameId, playerId, seconds);
+        if (success) {
+            return ResponseEntity.ok(Map.of("success", true, "message", "시간이 조절되었습니다."));
         }
-    }
-
-    /**
-     * 페이즈 전환
-     */
-    @PostMapping("/switch-phase")
-    public ResponseEntity<?> switchPhase(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            Game game = gameService.switchPhase(gameId);
-            
-            if (game != null) {
-                // 페이즈 전환 메시지를 방에 브로드캐스트
-                Map<String, Object> phaseMessage = new HashMap<>();
-                phaseMessage.put("type", "SYSTEM");
-                phaseMessage.put("gameId", gameId);
-                phaseMessage.put("currentPhase", game.getCurrentPhase());
-                phaseMessage.put("isDay", game.isDay());  // ❗ 수정: isDay 필드만 사용
-                phaseMessage.put("content", "페이즈가 변경되었습니다.");
-                phaseMessage.put("remainingTime", game.getRemainingTime());
-                
-                messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), phaseMessage);
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", true);
-                response.put("game", game);
-                response.put("message", "페이즈가 전환되었습니다.");
-                
-                return ResponseEntity.ok(response);
-            } else {
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", false);
-                response.put("message", "게임을 찾을 수 없습니다.");
-                
-                return ResponseEntity.badRequest().body(response);
-            }
-            
-        } catch (Exception e) {
-            log.error("페이즈 전환 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "페이즈 전환에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-
-    /**
-     * 투표 결과 처리 (죽은 플레이어 채팅방 추가)
-     */
-    @PostMapping("/process-vote-results")
-    public ResponseEntity<?> processVoteResults(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            String eliminatedPlayerId = request.get("eliminatedPlayerId");
-            
-            if (eliminatedPlayerId != null) {
-                Game game = gameService.getGame(gameId);
-                if (game != null) {
-                    gameService.addDeadPlayerToChatRoom(game.getRoomId(), eliminatedPlayerId);
-                    log.info("죽은 플레이어 채팅방에 추가됨: roomId={}, playerId={}", game.getRoomId(), eliminatedPlayerId);
-                }
-            }
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("투표 결과 처리 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "투표 결과 처리에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-
-    /**
-     * 게임 종료
-     */
-    @PostMapping("/end")
-    public ResponseEntity<?> endGame(@RequestBody Map<String, String> request) {
-        try {
-            String gameId = request.get("gameId");
-            Game game = gameService.getGame(gameId);
-            
-            if (game != null) {
-                gameService.deleteGame(gameId);
-                
-                // 게임 종료 메시지를 방에 브로드캐스트
-                Map<String, Object> gameEndMessage = new HashMap<>();
-                gameEndMessage.put("type", "GAME_END");
-                gameEndMessage.put("gameId", gameId);
-                gameEndMessage.put("message", "게임이 종료되었습니다.");
-                
-                messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), gameEndMessage);
-            }
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "게임이 종료되었습니다.");
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("게임 종료 실패", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "게임 종료에 실패했습니다: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-    
-    /**
-     * 역할 배정 메시지 전송
-     */
-    private void sendRoleAssignmentMessages(Game game) {
-        try {
-            // 각 플레이어에게 개별적으로 역할 전송
-            for (GamePlayer player : game.getPlayers()) {
-                Map<String, Object> roleMessage = new HashMap<>();
-                roleMessage.put("type", "ROLE_ASSIGNED");
-                roleMessage.put("gameId", game.getGameId());
-                roleMessage.put("roomId", game.getRoomId());
-                roleMessage.put("playerId", player.getPlayerId());
-                roleMessage.put("playerName", player.getPlayerName());
-                roleMessage.put("role", player.getRole().toString());
-                roleMessage.put("roleDescription", getRoleDescription(player.getRole()));
-                roleMessage.put("timestamp", java.time.LocalDateTime.now().toString());
-                
-                // 공용 토픽으로 전송하되 특정 플레이어만 처리하도록 함
-                log.info("역할 배정 메시지 전송: {} -> {}", player.getPlayerId(), player.getRole());
-                messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), roleMessage);
-            }
-            
-            // 전체 역할 분포 공개 (역할명만, 누구인지는 비공개)
-            Map<String, Object> roleDistributionMessage = new HashMap<>();
-            roleDistributionMessage.put("type", "ROLE_DISTRIBUTION");
-            roleDistributionMessage.put("gameId", game.getGameId());
-            roleDistributionMessage.put("roomId", game.getRoomId());
-            roleDistributionMessage.put("roleCounts", getRoleCounts(game));
-            roleDistributionMessage.put("timestamp", java.time.LocalDateTime.now().toString());
-            
-            messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), roleDistributionMessage);
-            
-        } catch (Exception e) {
-            log.error("역할 배정 메시지 전송 실패: {}", game.getGameId(), e);
-        }
-    }
-    
-    /**
-     * 역할 설명 반환
-     */
-    private String getRoleDescription(PlayerRole role) {
-        return switch (role) {
-            case MAFIA -> "마피아 - 밤마다 한 명을 선택하여 제거할 수 있습니다.";
-            case DOCTOR -> "의사 - 밤마다 한 명을 선택하여 마피아의 공격을 막을 수 있습니다.";
-            case POLICE -> "경찰 - 밤마다 한 명을 선택하여 마피아인지 시민인지 알 수 있습니다.";
-            case CITIZEN -> "시민 - 낮에 투표로 마피아를 찾아내야 합니다.";
-        };
-    }
-    
-    /**
-     * 역할별 인원 수 반환
-     */
-    private Map<String, Integer> getRoleCounts(Game game) {
-        Map<String, Integer> roleCounts = new HashMap<>();
-        roleCounts.put("MAFIA", 0);
-        roleCounts.put("DOCTOR", 0);
-        roleCounts.put("POLICE", 0);
-        roleCounts.put("CITIZEN", 0);
-        
-        for (GamePlayer player : game.getPlayers()) {
-            String role = player.getRole().toString();
-            roleCounts.put(role, roleCounts.get(role) + 1);
-        }
-        
-        return roleCounts;
-    }
-    
-    @GetMapping("/{gameId}")
-    public ResponseEntity<CommonResponse<Game>> getGame(@PathVariable String gameId) {
-        try {
-            Game game = gameService.getGame(gameId);
-            if (game == null) {
-                return ResponseEntity.badRequest()
-                    .body(CommonResponse.failure("게임을 찾을 수 없습니다."));
-            }
-            return ResponseEntity.ok(CommonResponse.success(game, "게임 조회 성공"));
-        } catch (Exception e) {
-            log.error("게임 조회 실패: {}", gameId, e);
-            return ResponseEntity.badRequest()
-                .body(CommonResponse.failure("게임 조회에 실패했습니다."));
-        }
+        return ResponseEntity.badRequest().body(Map.of("success", false, "message", "시간 조절에 실패했습니다."));
     }
 }

@@ -8,11 +8,18 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.context.event.EventListener;
+import org.springframework.web.socket.messaging.SessionConnectEvent;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpSession;
+import org.springframework.context.ApplicationContext;
 
 import java.util.Map;
 
@@ -23,6 +30,7 @@ public class StompHandler implements ChannelInterceptor {
 
     private final JwtUtil jwtUtil;
     private final MyUserDetailsService userDetailsService;
+    private final ApplicationContext applicationContext;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -40,21 +48,67 @@ public class StompHandler implements ChannelInterceptor {
                             UsernamePasswordAuthenticationToken authentication =
                                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
+                            // Set the user on the session regardless of session attributes
+                            accessor.setUser(authentication);
+                            log.info("StompHandler: WebSocket 세션에 사용자 '{}' 인증 완료! Principal 이름: '{}', UserDetails username: '{}'", 
+                                    username, authentication.getName(), userDetails.getUsername());
+                            
+                            // 사용자 식별자를 세션 속성에 저장 (convertAndSendToUser에서 사용)
                             Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
                             if (sessionAttributes != null) {
                                 sessionAttributes.put("user", authentication);
-                                accessor.setUser(authentication); // accessor에도 설정 (이중 안전장치)
-                                log.info("✅ StompHandler: WebSocket 세션 사물함에 사용자 '{}'의 인증 정보 저장 완료!", username);
-                            } else {
-                                log.error("!!! StompHandler: SessionAttributes가 null입니다. 인증 정보를 저장할 수 없습니다.");
+                                sessionAttributes.put("userId", username); // userLoginId 저장
+                                log.info("StompHandler: 세션 속성에 userId '{}' 저장됨", username);
                             }
                         }
                     }
                 }
             } catch (Exception e) {
-                log.error("!!! StompHandler: 토큰 인증 처리 중 예외 발생!", e);
+                log.error("StompHandler: 토큰 인증 처리 중 예외 발생!", e);
             }
         }
         return message;
+    }
+    
+    private SimpUserRegistry getSimpUserRegistry() {
+        try {
+            return applicationContext.getBean(SimpUserRegistry.class);
+        } catch (Exception e) {
+            log.warn("SimpUserRegistry를 가져올 수 없습니다: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @EventListener
+    public void handleWebSocketConnectListener(SessionConnectEvent event) {
+        log.info("WebSocket 연결 이벤트 발생");
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = headerAccessor.getSessionId();
+        log.info("세션 ID: {}", sessionId);
+        
+        if (headerAccessor.getUser() != null) {
+            String username = headerAccessor.getUser().getName();
+            log.info("연결된 사용자: {}", username);
+            
+            // 사용자 등록 상태 확인
+            SimpUserRegistry userRegistry = getSimpUserRegistry();
+            if (userRegistry != null) {
+                SimpUser user = userRegistry.getUser(username);
+                if (user != null) {
+                    log.info("사용자 등록 확인: {} (세션 수: {})", username, user.getSessions().size());
+                } else {
+                    log.warn("사용자 등록되지 않음: {}", username);
+                }
+            }
+        }
+    }
+
+    @EventListener
+    public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
+        log.info("WebSocket 연결 해제 이벤트 발생");
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        if (headerAccessor.getUser() != null) {
+            log.info("연결 해제된 사용자: {}", headerAccessor.getUser().getName());
+        }
     }
 }
