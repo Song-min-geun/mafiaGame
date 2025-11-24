@@ -1,13 +1,9 @@
 package com.example.mafiagame.game.domain;
 
+import com.example.mafiagame.user.domain.User;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -30,10 +26,11 @@ public class GamePlayer {
     @JsonBackReference
     private Game game;
 
-    private String playerId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
 
-    private String playerName;
-
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private PlayerRole role;
 
     @Builder.Default
@@ -53,72 +50,12 @@ public class GamePlayer {
 
     private String targetPlayerId;
 
-    public void setIsAlive(boolean isAlive) {
-        this.isAlive = isAlive;
-    }
-    
-    public void setIsReady(boolean isReady) {
-        this.isReady = isReady;
-    }
-    
-    public void setRole(PlayerRole role) {
-        this.role = role;
-    }
-    
-    public void setVoteCount(int voteCount) {
-        this.voteCount = voteCount;
-    }
-
-    public void setAlive(boolean b) {
-        this.isAlive = b;
-    }
-
-    public void setGame(Game game) {
-        this.game = game;
-    }
-
-    // 추가 필요한 메서드들
-    public String getPlayerId() {
-        return playerId;
-    }
-
     public String getPlayerName() {
-        return playerName;
+        return this.user != null ? this.user.getNickname() : "Unknown";
     }
 
-    public PlayerRole getRole() {
-        return role;
+    public String getPlayerId() {
+        return this.user != null ? this.user.getUserLoginId() : null;
     }
 
-    public boolean isAlive() {
-        return isAlive;
-    }
-
-    public boolean isHost() {
-        return isHost;
-    }
-
-    public boolean isReady() {
-        return isReady;
-    }
-
-    public int getVoteCount() {
-        return voteCount;
-    }
-
-    public String getTargetPlayerId() {
-        return targetPlayerId;
-    }
-
-    public void setPlayerId(String playerId) {
-        this.playerId = playerId;
-    }
-
-    public void setPlayerName(String playerName) {
-        this.playerName = playerName;
-    }
-
-    public void setTargetPlayerId(String targetPlayerId) {
-        this.targetPlayerId = targetPlayerId;
-    }
 }

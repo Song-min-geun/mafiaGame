@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
     USER_LOGIN_FAILED(HttpStatus.BAD_REQUEST, "USER_LOGIN_FAILED", "User Login Failed"),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "INVALID_TOKEN", "Invalid Token"),
+    ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_NOT_FOUND", "Room Not Found"),
     ;
     private final String code;
     private final String message;

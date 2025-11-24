@@ -40,4 +40,5 @@ public class User {
     public void updateUserLoginPassword(String userLoginPassword) {
         this.userLoginPassword = userLoginPassword;
     }
+
 }

@@ -1,35 +1,36 @@
 package com.example.mafiagame.chat.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.IdClass;
-import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "chat_users")
-@IdClass(ChatUserId.class)
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ChatUser {
+
     @Id
-    @Column(name = "user_id", nullable = false)
-    private String userId;
-    
-    @Id
-    @Column(name = "room_id", nullable = false)
-    private String roomId;
-    
-    @Column(name = "user_name", nullable = false)
-    private String userName;
-    
-    @Column(name = "is_host", nullable = false)
+    private Long id;
+
+    @Column(nullable = false)
+    private String userId; // User의 userLoginId
+
+    @Column(nullable = false)
+    private String userName; // User의 nickname
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "room_id")
+    @JsonBackReference
+    private ChatRoom room;
+
     @Builder.Default
-    private boolean isHost = false;  // 방장 여부
+    private boolean isHost = false;
 }
