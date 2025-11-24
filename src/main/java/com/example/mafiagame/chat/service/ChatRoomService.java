@@ -129,7 +129,6 @@ public class ChatRoomService {
 
         ChatMessage joinMessage = ChatMessage.builder()
                 .type(ChatMessage.MessageType.USER_JOINED)
-                .roomName(room.getRoomName())
                 .roomId(roomId)
                 .content(content)
                 .data(Map.of("room", room)) // 참가자 목록 대신 방 전체 정보 전송
