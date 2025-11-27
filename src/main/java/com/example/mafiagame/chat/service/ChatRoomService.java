@@ -2,29 +2,23 @@ package com.example.mafiagame.chat.service;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.ChatMessage;
-import com.example.mafiagame.chat.repository.ChatRepository;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameStatus;
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.global.error.CommonException;
-import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -37,7 +31,6 @@ public class ChatRoomService {
     private final GameService gameService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ApplicationContext applicationContext;
-    private final ChatRepository chatRepository;
 
     // ================== 메시지 처리 (핵심 로직) ================== //
 
@@ -105,7 +98,6 @@ public class ChatRoomService {
         ChatRoom room = new ChatRoom(roomName, host.getUserLoginId(), host.getNickname());
         room.addParticipant(host.getUserLoginId(), host.getNickname(), true);
         chatRooms.put(room.getRoomId(), room);
-        chatRooms.put(room.getRoomName(), room);
         log.info("채팅방 생성됨: {} (호스트: {})", room.getRoomId(), host.getNickname());
         return room;
     }
@@ -130,6 +122,7 @@ public class ChatRoomService {
         ChatMessage joinMessage = ChatMessage.builder()
                 .type(ChatMessage.MessageType.USER_JOINED)
                 .roomId(roomId)
+                .roomName(room.getRoomName())
                 .content(content)
                 .data(Map.of("room", room)) // 참가자 목록 대신 방 전체 정보 전송
                 .build();
@@ -149,7 +142,7 @@ public class ChatRoomService {
         if (leftUserName == null)
             return; // 방에 없는 유저가 나가는 경우
 
-        if (!room.getParticipants().isEmpty()) {
+        if (room.getParticipants().size() > 1) {
             ChatMessage leaveMessage = ChatMessage.builder()
                     .type(ChatMessage.MessageType.USER_LEFT)
                     .roomId(roomId)
@@ -167,10 +160,9 @@ public class ChatRoomService {
     }
 
     private void deleteRoom(String roomId) {
-        ChatRoom room = chatRepository.findById(roomId)
-                .orElseThrow(() -> new CommonException(ErrorCode.ROOM_NOT_FOUND));
-
-        chatRepository.delete(room);
+        // 메모리에서 제거
+        chatRooms.remove(roomId);
+        log.info("채팅방 삭제됨: {}", roomId);
     }
 
     public void handleDisconnect(String userId) {

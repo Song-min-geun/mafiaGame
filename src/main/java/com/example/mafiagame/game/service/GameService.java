@@ -1,14 +1,11 @@
 package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.*;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
+
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessageType;
-import org.springframework.messaging.MessageHeaders;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -23,17 +20,6 @@ public class GameService {
 
     private final Map<String, Game> games = new ConcurrentHashMap<>();
     private final SimpMessagingTemplate messagingTemplate;
-    private final HttpMessageConverters messageConverters;
-
-    // 개인 메시지 전송을 위한 헤더 생성 메서드
-    private MessageHeaders createHeaders(@Nullable String sessionId) {
-        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
-        if (sessionId != null) {
-            headerAccessor.setSessionId(sessionId);
-        }
-        headerAccessor.setLeaveMutable(true);
-        return headerAccessor.getMessageHeaders();
-    }
 
     public Game createGame(String roomId, List<GamePlayer> playerList) {
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
@@ -46,9 +32,6 @@ public class GameService {
         playerList.forEach(player -> player.setGame(game));
         games.put(gameId, game);
         log.info("게임 생성됨: {}", gameId);
-        messagingTemplate.convertAndSend("/topic/room" + roomId, Map.of(
-                "type", "GAME_START",
-                "content", "게임이 시작되었습니다."));
         return game;
     }
 
@@ -85,11 +68,11 @@ public class GameService {
                         "roleDescription", getRoleDescription(assignedRole));
                 log.info("전송할 메시지 내용: {}", message);
 
-                // 개인 전용 큐로 메시지 전송 (/user/queue/private) - 헤더 포함
-                messagingTemplate.convertAndSendToUser(playerId, "/queue/private", Map.of(
+                // 개인 전용 큐로 메시지 전송 (/user/queue/private)
+                sendPrivateMessage(playerId, Map.of(
                         "type", "ROLE_ASSIGNED",
                         "role", assignedRole.name(),
-                        "roleDescription", getRoleDescription(assignedRole)), createHeaders(null));
+                        "roleDescription", getRoleDescription(assignedRole)));
                 log.info("역할 배정 메시지 전송 완료: playerId={}", playerId);
 
             } catch (Exception e) {
@@ -346,22 +329,13 @@ public class GameService {
         log.info("경찰 조사 결과 전송: policeId={}, target={}", policeId, target.getPlayerName());
 
         // 개인 메시지로 전송 (헤더 포함)
-        messagingTemplate.convertAndSendToUser(policeId, "/queue/private", Map.of(
+        sendPrivateMessage(policeId, Map.of(
                 "type", "PRIVATE_MESSAGE",
                 "targetPlayerId", policeId,
                 "messageType", "POLICE_INVESTIGATION",
                 "content", String.format("경찰 조사 결과: %s님은 [ %s ] 입니다.",
                         target.getPlayerName(),
-                        target.getRole() == PlayerRole.MAFIA ? "마피아" : "시민")),
-                createHeaders(null));
-    }
-
-    private Game getCurrentGameForPlayer(String playerId) {
-        return games.values().stream()
-                .filter(game -> game.getPlayers().stream()
-                        .anyMatch(player -> player.getPlayerId().equals(playerId)))
-                .findFirst()
-                .orElse(null);
+                        target.getRole() == PlayerRole.MAFIA ? "마피아" : "시민")));
     }
 
     private String getRoleDescription(PlayerRole role) {
@@ -371,5 +345,19 @@ public class GameService {
             case DOCTOR -> "밤에 한 명을 지목하여 마피아의 공격으로부터 보호할 수 있습니다.";
             case CITIZEN -> "특별한 능력이 없습니다. 추리를 통해 마피아를 찾아내세요.";
         };
+    }
+
+    private void sendPrivateMessage(String playerId, Map<String, Object> payload) {
+        // SimpUserRegistry 문제로 인해 convertAndSendToUser 대신 직접 토픽을 사용합니다.
+        // 클라이언트는 /topic/private/{userId}를 구독해야 합니다.
+        String destination = "/topic/private/" + playerId;
+        log.info("sendPrivateMessage 호출: destination={}, payload={}", destination, payload);
+
+        try {
+            messagingTemplate.convertAndSend(destination, payload);
+            log.info("sendPrivateMessage 성공: destination={}", destination);
+        } catch (Exception e) {
+            log.error("sendPrivateMessage 실패: destination={}, error={}", destination, e.getMessage(), e);
+        }
     }
 }

@@ -1,9 +1,19 @@
 package com.example.mafiagame.chat.domain;
 
 import com.fasterxml.jackson.annotation.JsonManagedReference;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-import jakarta.persistence.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -44,95 +54,88 @@ public class ChatRoom {
         this.hostName = hostName;
     }
 
-        // 채팅방에 새로운 참가자를 추가합니다. 중복 참여는 방지됩니다.
+    // 채팅방에 새로운 참가자를 추가합니다. 중복 참여는 방지됩니다.
 
-        public void addParticipant(String userId, String userName, boolean isHost) {
+    public void addParticipant(String userId, String userName, boolean isHost) {
 
-            if (this.participants == null) {
+        if (this.participants == null) {
 
-                this.participants = new ArrayList<>();
-
-            }
-
-            if (isParticipant(userId)) return; // 중복 참여 방지
-
-            ChatUser participant = ChatUser.builder()
-
-                    .userId(userId)
-
-                    .userName(userName)
-
-                    .room(this)
-
-                    .isHost(isHost)
-
-                    .build();
-
-            this.participants.add(participant);
+            this.participants = new ArrayList<>();
 
         }
 
-    
+        if (isParticipant(userId))
+            return; // 중복 참여 방지
 
-        // 특정 참가자를 채팅방에서 제거합니다. 만약 방장이 나가면 다른 참가자에게 방장 역할을 위임합니다.
+        ChatUser participant = ChatUser.builder()
 
-        public String removeParticipant(String userId) {
-            if (this.participants == null) {
+                .userId(userId)
 
-                return null;
+                .userName(userName)
 
-            }
+                .room(this)
 
-            ChatUser userToRemove = this.participants.stream()
+                .isHost(isHost)
 
-                    .filter(p -> p.getUserId().equals(userId))
+                .build();
 
-                    .findFirst().orElse(null);
+        this.participants.add(participant);
 
-    
+    }
 
-            if (userToRemove != null) {
+    // 특정 참가자를 채팅방에서 제거합니다. 만약 방장이 나가면 다른 참가자에게 방장 역할을 위임합니다.
 
-                this.participants.remove(userToRemove);
-
-                // 방장이 나갔을 경우, 다른 참가자가 있으면 방장 위임
-
-                if (userToRemove.isHost() && !this.participants.isEmpty()) {
-
-                    ChatUser newHost = this.participants.get(0);
-
-                    newHost.setHost(true);
-
-                    this.hostId = newHost.getUserId();
-
-                    this.hostName = newHost.getUserName();
-
-                }
-
-                return userToRemove.getUserName();
-
-            }
+    public String removeParticipant(String userId) {
+        if (this.participants == null) {
 
             return null;
 
         }
 
-    
+        ChatUser userToRemove = this.participants.stream()
 
-        // 주어진 ID의 사용자가 이미 채팅방에 있는지 확인합니다.
+                .filter(p -> p.getUserId().equals(userId))
 
-        public boolean isParticipant(String userId) {
+                .findFirst().orElse(null);
 
-            if (this.participants == null) {
+        if (userToRemove != null) {
 
-                return false;
+            this.participants.remove(userToRemove);
+
+            // 방장이 나갔을 경우, 다른 참가자가 있으면 방장 위임
+
+            if (userToRemove.isHost() && !this.participants.isEmpty()) {
+
+                ChatUser newHost = this.participants.get(0);
+
+                newHost.setHost(true);
+
+                this.hostId = newHost.getUserId();
+
+                this.hostName = newHost.getUserName();
 
             }
 
-            return this.participants.stream().anyMatch(p -> p.getUserId().equals(userId));
+            return userToRemove.getUserName();
 
         }
 
+        return null;
+
     }
 
-    
+    // 주어진 ID의 사용자가 이미 채팅방에 있는지 확인합니다.
+
+    public boolean isParticipant(String userId) {
+
+        if (this.participants == null) {
+
+            return false;
+
+        }
+
+        return this.participants.stream().anyMatch(p -> p.getUserId().equals(userId));
+
+    }
+
+}

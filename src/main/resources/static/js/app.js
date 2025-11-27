@@ -86,10 +86,15 @@ async function login(event) {
         document.getElementById('registerForm').classList.add('hidden');
         document.getElementById('gameScreen').classList.remove('hidden');
 
+
         // WebSocket 연결 후 개인 메시지 구독 설정
         await connectWebSocket();
 
-        await loadRooms();
+        // 로그인 시 새로고침 타이머 초기화 (즉시 새로고침 가능하도록)
+        lastRefreshTime = 0;
+
+        //await loadRooms();
+        await refreshRoomList();
         updateUserInfo();
         updateGameButtons();
     } catch (error) {
@@ -178,6 +183,14 @@ function logout() {
     document.getElementById('loginForm').classList.remove('hidden');
     document.getElementById('userLoginId').value = '';
     document.getElementById('userLoginPassword').value = '';
+
+    // 역할 정보 UI 초기화
+    const headerUserRole = document.getElementById('headerUserRole');
+    if (headerUserRole) {
+        headerUserRole.textContent = '';
+        headerUserRole.style.display = 'none';
+    }
+
     clearChatMessages();
     updateUserInfo();
 }
@@ -220,7 +233,8 @@ function connectWebSocket() {
 
         stompClient.connect({ 'Authorization': 'Bearer ' + token },
             frame => {
-                document.getElementById('connectionStatus').textContent = '연결됨';
+                const statusElem = document.getElementById('headerConnectionStatus');
+                if (statusElem) statusElem.textContent = '🟢';
                 console.log('WebSocket 연결 성공:', frame);
                 console.log('현재 사용자:', currentUser);
 
@@ -237,7 +251,8 @@ function connectWebSocket() {
                 });
             },
             error => {
-                document.getElementById('connectionStatus').textContent = '연결 실패';
+                const statusElem = document.getElementById('headerConnectionStatus');
+                if (statusElem) statusElem.textContent = '🔴';
                 console.error('WebSocket 연결 실패:', error);
                 reject(error);
             }
@@ -247,23 +262,42 @@ function connectWebSocket() {
 
 // 개인 메시지 구독을 위한 함수
 function subscribeToPrivateMessages() {
-    if (!stompClient || !stompClient.connected) {
-        console.log('WebSocket 연결이 없어 개인 메시지 구독을 할 수 없습니다.');
+    // connect 콜백 내에서 호출되므로 connected 체크 제거 또는 로그 강화
+    console.log('subscribeToPrivateMessages 호출됨. currentUser:', currentUser);
+
+    if (!stompClient) {
+        console.error('stompClient가 없습니다.');
         return;
     }
 
-    console.log('개인 메시지 구독 시작: /user/queue/private');
+    const privateTopic = `/topic/private/${currentUser.userLoginId}`;
+    console.log(`개인 메시지 구독 시도: ${privateTopic}`);
 
-    stompClient.subscribe('/user/queue/private', (message) => {
-        console.log('개인 메시지 수신됨:', message);
+    stompClient.subscribe(privateTopic, (message) => {
+        console.log('🔥 개인 메시지 수신됨 (RAW):', message);
+        console.log('🔥 개인 메시지 바디:', message.body);
         const privateMessage = JSON.parse(message.body);
-        console.log('개인 메시지 파싱 완료:', privateMessage);
+        console.log('🔥 개인 메시지 파싱 완료:', privateMessage);
 
         switch (privateMessage.type) {
             case 'ROLE_ASSIGNED':
+                console.log('ROLE_ASSIGNED 메시지 수신:', privateMessage);
+
+                const role = privateMessage.role || '알 수 없음';
+                const roleDescription = privateMessage.roleDescription || '설명이 없습니다.';
+
+                if (currentUser) {
+                    currentUser.role = role;
+                    currentUser.roleDescription = roleDescription;
+                    console.log('currentUser 업데이트 완료:', currentUser);
+                } else {
+                    console.error('currentUser가 없습니다!');
+                }
+                updateUserInfo();
+
                 addMessage({
                     senderId: 'SYSTEM',
-                    content: `당신의 역할: ${privateMessage.role} - ${privateMessage.roleDescription}`
+                    content: `당신의 역할: ${role} - ${roleDescription}`
                 }, 'system');
                 break;
             case 'PRIVATE_MESSAGE':
@@ -406,7 +440,7 @@ async function createRoom() {
         updateUserInfo();
         // ❗ 추가: 버튼 상태 업데이트
         updateGameButtons();
-        await loadRooms();
+        // 주석: loadRooms()는 서버에서 보내는 ROOM_LIST_UPDATED 메시지로 자동 호출됨
 
     } catch (error) {
         alert(error.message);
@@ -448,9 +482,10 @@ async function joinRoom(roomId) {
 
             if (roomResponse.ok) {
                 const roomData = await roomResponse.json();
-                if (roomData) {
-                    currentRoomInfo = roomData;
+                if (roomData && roomData.data) {
+                    currentRoomInfo = roomData.data;
                     updateGameButtons(); // 방 정보 업데이트 후 버튼 상태 갱신
+                    updateUserInfo(); // 헤더 업데이트
                 }
             }
         } catch (error) {
@@ -569,7 +604,7 @@ function subscribeToRoom(roomId) {
                 currentGameId = chatMessage.game.gameId;
                 currentGame = chatMessage.game;
 
-                addMessage(chatMessage, 'system');
+                addMessage({ senderId: 'SYSTEM', content: '게임이 시작되었습니다.' }, 'system');
                 // 게임 UI 업데이트
                 updateGameUI(currentGame);
 
@@ -741,9 +776,6 @@ function subscribeToRoom(roomId) {
                             showVotingUI(currentGame);
                         }, 100);
                     }
-
-                    // 페이즈 전환 시스템 메시지 표시
-                    addMessage(chatMessage, 'system');
                 }
                 break;
 
@@ -821,24 +853,62 @@ function updateUserInfo() {
     const headerUserName = document.getElementById('headerUserName');
     const headerConnectionStatus = document.getElementById('headerConnectionStatus');
     const headerCurrentRoom = document.getElementById('headerCurrentRoom');
+    const headerUserRole = document.getElementById('headerUserRole');
 
     if (currentUser) {
         // 헤더 사용자 정보 표시
         if (headerUserInfo) headerUserInfo.style.display = 'flex';
         if (headerUserName) headerUserName.textContent = currentUser.nickname;
 
+        // 역할 정보 표시
+        if (headerUserRole) {
+            if (currentUser.role) {
+                headerUserRole.textContent = `[${currentUser.role}]`;
+                headerUserRole.style.display = 'inline-block';
+                // 역할에 따른 색상 스타일링 (선택 사항)
+                if (currentUser.role === 'MAFIA') {
+                    headerUserRole.style.color = '#ff4444';
+                } else if (currentUser.role === 'DOCTOR') {
+                    headerUserRole.style.color = '#44ff44';
+                } else if (currentUser.role === 'POLICE') {
+                    headerUserRole.style.color = '#4444ff';
+                } else {
+                    headerUserRole.style.color = '#ffffff';
+                }
+            } else {
+                headerUserRole.style.display = 'none';
+            }
+        }
+
         // 현재 방 정보 표시
         if (headerCurrentRoom) {
-            if (currentRoomInfo && currentRoomInfo.roomName) {
+            if (currentRoom && currentRoomInfo && currentRoomInfo.roomName) {
                 headerCurrentRoom.textContent = currentRoomInfo.roomName;
+                headerCurrentRoom.style.display = 'inline-block';
+            } else if (currentRoom) {
+                // 방 정보가 없으면 방 ID 표시
+                headerCurrentRoom.textContent = currentRoom;
+                headerCurrentRoom.style.display = 'inline-block';
             } else {
                 headerCurrentRoom.textContent = '로비';
+                headerCurrentRoom.style.display = 'inline-block';
+            }
+        }
+
+        // ❗ 추가: 나가기 버튼 표시/숨김 제어
+        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+        if (leaveRoomBtn) {
+            if (currentRoom) {
+                leaveRoomBtn.style.display = 'inline-block';
+            } else {
+                leaveRoomBtn.style.display = 'none';
             }
         }
     } else {
         // 헤더 사용자 정보 숨김
         if (headerUserInfo) headerUserInfo.style.display = 'none';
     }
+
     // 연결 상태 업데이트
     const connectionStatus = document.getElementById('connectionStatus');
     if (connectionStatus) connectionStatus.textContent = currentRoom || '없음';
@@ -857,32 +927,6 @@ function updateUserInfo() {
     // 현재 방 정보 업데이트
     const currentRoomStatus = document.getElementById('currentRoomStatus');
     if (currentRoomStatus) currentRoomStatus.textContent = currentRoom || '없음';
-
-    // 헤더 현재 방 정보 업데이트
-    if (headerCurrentRoom) {
-        if (currentRoom && currentRoomInfo) {
-            // ❗ 수정: 방 제목 표시
-            const roomDisplayName = currentRoomInfo.roomName || currentRoom;
-            headerCurrentRoom.textContent = roomDisplayName;
-            headerCurrentRoom.style.display = 'inline-block';
-        } else if (currentRoom) {
-            // 방 정보가 없으면 방 ID 표시
-            headerCurrentRoom.textContent = currentRoom;
-            headerCurrentRoom.style.display = 'inline-block';
-        } else {
-            headerCurrentRoom.style.display = 'none';
-        }
-    }
-
-    // ❗ 추가: 나가기 버튼 표시/숨김 제어
-    const leaveRoomBtn = document.getElementById('leaveRoomBtn');
-    if (leaveRoomBtn) {
-        if (currentRoom) {
-            leaveRoomBtn.style.display = 'inline-block';
-        } else {
-            leaveRoomBtn.style.display = 'none';
-        }
-    }
 }
 
 function handleKeyPress(event) {

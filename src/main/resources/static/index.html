@@ -32,6 +32,9 @@
                     <span class="current-room-label">현재 방:</span>
                     <span class="current-room" id="headerCurrentRoom"></span>
                 </div>
+                <div class="role-status">
+                    <span class="user-role" id="headerUserRole" style="display: none;"></span>
+                </div>
                 <button onclick="logout()" class="header-logout-btn">로그아웃</button>
             </div>
         </div>
@@ -39,8 +42,9 @@
         <!-- 로그인 폼 -->
         <div id="loginForm" class="login-form">
             <h2>로그인</h2>
-            <input type="text" id="userLoginId" placeholder="아이디" required>
-            <input type="password" id="userLoginPassword" placeholder="비밀번호" required>
+            <input type="text" id="userLoginId" placeholder="아이디" required onkeypress="if(event.key==='Enter') login()">
+            <input type="password" id="userLoginPassword" placeholder="비밀번호" required
+                onkeypress="if(event.key==='Enter') login()">
             <button onclick="login()">로그인</button>
             <button onclick="showRegister()">회원가입</button>
         </div>
