@@ -23,6 +23,8 @@ import org.springframework.context.ApplicationContext;
 
 import java.util.Map;
 
+import org.springframework.messaging.support.MessageBuilder;
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -45,14 +47,16 @@ public class StompHandler implements ChannelInterceptor {
                     if (StringUtils.hasText(username)) {
                         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
                         if (jwtUtil.validateToken(token, userDetails)) {
-                            UsernamePasswordAuthenticationToken authentication =
-                                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
 
                             // Set the user on the session regardless of session attributes
                             accessor.setUser(authentication);
-                            log.info("StompHandler: WebSocket 세션에 사용자 '{}' 인증 완료! Principal 이름: '{}', UserDetails username: '{}'", 
+                            accessor.setLeaveMutable(true); // Ensure headers remain mutable for downstream processing
+                            log.info(
+                                    "StompHandler: WebSocket 세션에 사용자 '{}' 인증 완료! Principal 이름: '{}', UserDetails username: '{}'",
                                     username, authentication.getName(), userDetails.getUsername());
-                            
+
                             // 사용자 식별자를 세션 속성에 저장 (convertAndSendToUser에서 사용)
                             Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
                             if (sessionAttributes != null) {
@@ -60,6 +64,11 @@ public class StompHandler implements ChannelInterceptor {
                                 sessionAttributes.put("userId", username); // userLoginId 저장
                                 log.info("StompHandler: 세션 속성에 userId '{}' 저장됨", username);
                             }
+
+                            // 인증 정보가 담긴 새로운 메시지 반환 (중요!)
+                            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
+                        } else {
+                            log.error("StompHandler: 토큰 검증 실패! username={}, token={}", username, token);
                         }
                     }
                 }
@@ -69,7 +78,7 @@ public class StompHandler implements ChannelInterceptor {
         }
         return message;
     }
-    
+
     private SimpUserRegistry getSimpUserRegistry() {
         try {
             return applicationContext.getBean(SimpUserRegistry.class);
@@ -85,11 +94,11 @@ public class StompHandler implements ChannelInterceptor {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = headerAccessor.getSessionId();
         log.info("세션 ID: {}", sessionId);
-        
+
         if (headerAccessor.getUser() != null) {
             String username = headerAccessor.getUser().getName();
             log.info("연결된 사용자: {}", username);
-            
+
             // 사용자 등록 상태 확인
             SimpUserRegistry userRegistry = getSimpUserRegistry();
             if (userRegistry != null) {
@@ -100,6 +109,15 @@ public class StompHandler implements ChannelInterceptor {
                     log.warn("사용자 등록되지 않음: {}", username);
                 }
             }
+        }
+    }
+
+    @EventListener
+    public void handleSessionConnected(org.springframework.web.socket.messaging.SessionConnectedEvent event) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        log.info("SessionConnectedEvent 발생: user={}, sessionId={}", accessor.getUser(), accessor.getSessionId());
+        if (accessor.getUser() == null) {
+            log.error("CRITICAL: SessionConnectedEvent에 사용자 정보가 없습니다! StompHandler가 제대로 동작하지 않았거나 헤더가 손실되었습니다.");
         }
     }
 
