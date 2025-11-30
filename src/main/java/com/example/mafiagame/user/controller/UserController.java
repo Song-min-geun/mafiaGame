@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.mafiagame.global.dto.CommonResponse;
 import com.example.mafiagame.global.jwt.JwtUtil;
+import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
@@ -34,6 +35,7 @@ public class UserController {
 
     private final UserService userService;
     private final JwtUtil jwtUtil;
+    private final RedisService redisService;
 
     @PostMapping("/register")
     public ResponseEntity<CommonResponse<Void>> registerUser(@Valid @RequestBody RegistRequest requestDto) {
@@ -41,7 +43,6 @@ public class UserController {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(CommonResponse.success(null, "회원가입에 성공했습니다."));
     }
-
 
     @PostMapping("/login")
     public ResponseEntity<CommonResponse<Map<String, String>>> login(@Valid @RequestBody LoginRequest requestDto) {
@@ -102,5 +103,20 @@ public class UserController {
         );
 
         return ResponseEntity.status(HttpStatus.OK).body(CommonResponse.success(null, "비밀번호가 성공적으로 변경되었습니다."));
+    }
+    
+    @GetMapping("/session")
+    public ResponseEntity<CommonResponse<Map<String, String>>> getUserSession(Authentication authentication) {
+        String userLoginId = authentication.getName();
+        
+        String roomId = redisService.getUserRoomId(userLoginId);
+        String gameId = redisService.getUserGameId(userLoginId);
+        
+        Map<String, String> sessionData = Map.of(
+            "roomId", roomId != null ? roomId : "",
+            "gameId", gameId != null ? gameId : ""
+        );
+        
+        return ResponseEntity.ok(CommonResponse.success(sessionData, "사용자 세션 조회 성공"));
     }
 }
