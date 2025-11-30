@@ -42,8 +42,11 @@ dependencies {
     // Spring Boot 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
-    //h2
+    //h2 (개발용)
     runtimeOnly 'com.h2database:h2'
+
+    //MySQL
+    runtimeOnly 'com.mysql:mysql-connector-j'
 
     //JPA
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -55,6 +58,11 @@ dependencies {
     implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    //Redis
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.session:spring-session-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
 }
 
 tasks.named('test') {

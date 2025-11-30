@@ -35,7 +35,7 @@ public class MyUserDetailsService implements UserDetailsService {
         return new org.springframework.security.core.userdetails.User(
                 user.getUserLoginId(),
                 user.getUserLoginPassword(),
-                authorities // ❗ 수정된 부분: 권한 목록을 포함시킵니다.
+                authorities
         );
     }
 }

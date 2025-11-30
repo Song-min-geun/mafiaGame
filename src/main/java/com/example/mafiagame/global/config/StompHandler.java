@@ -1,19 +1,29 @@
 package com.example.mafiagame.global.config;
 
-import java.security.Principal;
-
+import com.example.mafiagame.global.jwt.JwtUtil;
+import com.example.mafiagame.user.service.MyUserDetailsService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.context.event.EventListener;
+import org.springframework.web.socket.messaging.SessionConnectEvent;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpSession;
+import org.springframework.context.ApplicationContext;
 
-import com.example.mafiagame.global.jwt.JwtUtil;
+import java.util.Map;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.support.MessageBuilder;
 
 @Component
 @RequiredArgsConstructor
@@ -21,101 +31,102 @@ import lombok.extern.slf4j.Slf4j;
 public class StompHandler implements ChannelInterceptor {
 
     private final JwtUtil jwtUtil;
+    private final MyUserDetailsService userDetailsService;
+    private final ApplicationContext applicationContext;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
 
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            log.info("=== WebSocket CONNECT 요청 감지 ===");
-            
-            // 헤더에서 Authorization 토큰 추출
-            String authHeader = accessor.getFirstNativeHeader("Authorization");
-            log.info("Authorization 헤더: {}", authHeader);
-            
-            // 모든 헤더 정보 로깅
-            log.info("모든 헤더 정보:");
-            log.info("accept-version: {}", accessor.getFirstNativeHeader("accept-version"));
-            log.info("heart-beat: {}", accessor.getFirstNativeHeader("heart-beat"));
-            log.info("Authorization: {}", accessor.getFirstNativeHeader("Authorization"));
-
-            if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
-                String token = authHeader.substring(7);
-                log.info("JWT 토큰 추출: {} (길이: {}자)", token.substring(0, Math.min(token.length(), 50)) + (token.length() > 50 ? "..." : ""), token.length());
-                
-                // ❗ 추가: JWT 토큰 구조 분석
-                String[] tokenParts = token.split("\\.");
-                if (tokenParts.length == 3) {
-                    log.info("JWT 토큰 구조: Header.Payload.Signature (올바름)");
-                    log.info("Header 길이: {}자, Payload 길이: {}자, Signature 길이: {}자", 
-                        tokenParts[0].length(), tokenParts[1].length(), tokenParts[2].length());
-                } else {
-                    log.error("JWT 토큰 구조가 올바르지 않음: {}개 부분", tokenParts.length);
-                }
-
-                try {
-                    log.info("JWT 토큰 검증 시작...");
+            try {
+                String authHeader = accessor.getFirstNativeHeader("Authorization");
+                if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
+                    String token = authHeader.substring(7);
                     String username = jwtUtil.getUsernameFromToken(token);
-                    log.info("JWT에서 추출된 username: {}", username);
-                    
-                    // ❗ 추가: 토큰 만료 여부 확인
-                    try {
-                        if (jwtUtil.isTokenExpired(token)) {
-                            log.error("JWT 토큰이 만료되었습니다!");
-                            return null;
-                        }
-                        log.info("JWT 토큰 유효성 검증 성공 (만료되지 않음)");
-                    } catch (Exception e) {
-                        log.error("JWT 토큰 만료 확인 중 오류: {}", e.getMessage());
-                        return null;
-                    }
-
                     if (StringUtils.hasText(username)) {
-                        // ❗ 중요: 강력한 Principal 설정
-                        // 커스텀 Principal 객체 생성 (Spring Security 호환)
-                        Principal customPrincipal = new Principal() {
-                            @Override
-                            public String getName() {
-                                return username;
+                        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                        if (jwtUtil.validateToken(token, userDetails)) {
+                            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
+
+                            // Set the user on the session regardless of session attributes
+                            accessor.setUser(authentication);
+                            accessor.setLeaveMutable(true); // Ensure headers remain mutable for downstream processing
+                            log.info(
+                                    "StompHandler: WebSocket 세션에 사용자 '{}' 인증 완료! Principal 이름: '{}', UserDetails username: '{}'",
+                                    username, authentication.getName(), userDetails.getUsername());
+
+                            // 사용자 식별자를 세션 속성에 저장 (convertAndSendToUser에서 사용)
+                            Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+                            if (sessionAttributes != null) {
+                                sessionAttributes.put("user", authentication);
+                                sessionAttributes.put("userId", username); // userLoginId 저장
+                                log.info("StompHandler: 세션 속성에 userId '{}' 저장됨", username);
                             }
-                            
-                            @Override
-                            public String toString() {
-                                return "CustomPrincipal{username='" + username + "'}";
-                            }
-                        };
-                        
-                        // accessor에 user를 설정하여 웹소켓 세션에 인증 정보를 저장
-                        accessor.setUser(customPrincipal);
-                        
-                        // ❗ 추가: Principal 설정 확인
-                        Principal setPrincipal = accessor.getUser();
-                        log.info("Principal 설정 확인: {}", setPrincipal);
-                        log.info("Principal name: {}", setPrincipal != null ? setPrincipal.getName() : "NULL");
-                        
-                        log.info("Successfully authenticated user '{}' with custom Principal for WebSocket session.", username);
-                        
-                        // ❗ 추가: 최종 Principal 설정 상태 확인
-                        Principal finalPrincipal = accessor.getUser();
-                        if (finalPrincipal != null) {
-                            log.info("✅ WebSocket 연결 성공! Principal 설정 완료: {}", finalPrincipal.getName());
+
+                            // 인증 정보가 담긴 새로운 메시지 반환 (중요!)
+                            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
                         } else {
-                            log.error("❌ WebSocket 연결 실패! Principal 설정 실패!");
-                            return null;  // Principal 설정 실패 시 연결 거부
+                            log.error("StompHandler: 토큰 검증 실패! username={}, token={}", username, token);
                         }
-                    } else {
-                        log.error("Invalid username from JWT token");
-                        return null;  // 연결 거부
                     }
-                } catch (Exception e) {
-                    log.error("JWT verification failed: {}", e.getMessage());
-                    return null;  // 연결 거부
                 }
-            } else {
-                log.error("Authorization header not found or invalid");
-                return null;  // 연결 거부
+            } catch (Exception e) {
+                log.error("StompHandler: 토큰 인증 처리 중 예외 발생!", e);
             }
         }
         return message;
+    }
+
+    private SimpUserRegistry getSimpUserRegistry() {
+        try {
+            return applicationContext.getBean(SimpUserRegistry.class);
+        } catch (Exception e) {
+            log.warn("SimpUserRegistry를 가져올 수 없습니다: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @EventListener
+    public void handleWebSocketConnectListener(SessionConnectEvent event) {
+        log.info("WebSocket 연결 이벤트 발생");
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = headerAccessor.getSessionId();
+        log.info("세션 ID: {}", sessionId);
+
+        if (headerAccessor.getUser() != null) {
+            String username = headerAccessor.getUser().getName();
+            log.info("연결된 사용자: {}", username);
+
+            // 사용자 등록 상태 확인
+            SimpUserRegistry userRegistry = getSimpUserRegistry();
+            if (userRegistry != null) {
+                SimpUser user = userRegistry.getUser(username);
+                if (user != null) {
+                    log.info("사용자 등록 확인: {} (세션 수: {})", username, user.getSessions().size());
+                } else {
+                    log.warn("사용자 등록되지 않음: {}", username);
+                }
+            }
+        }
+    }
+
+    @EventListener
+    public void handleSessionConnected(org.springframework.web.socket.messaging.SessionConnectedEvent event) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        log.info("SessionConnectedEvent 발생: user={}, sessionId={}", accessor.getUser(), accessor.getSessionId());
+        if (accessor.getUser() == null) {
+            log.error("CRITICAL: SessionConnectedEvent에 사용자 정보가 없습니다! StompHandler가 제대로 동작하지 않았거나 헤더가 손실되었습니다.");
+        }
+    }
+
+    @EventListener
+    public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
+        log.info("WebSocket 연결 해제 이벤트 발생");
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        if (headerAccessor.getUser() != null) {
+            log.info("연결 해제된 사용자: {}", headerAccessor.getUser().getName());
+        }
     }
 }

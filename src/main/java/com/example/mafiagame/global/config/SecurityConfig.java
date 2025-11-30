@@ -43,15 +43,14 @@ public class SecurityConfig {
             // 요청에 대한 접근 권한 설정
             .authorizeHttpRequests(auth -> auth
                 // 정적 리소스 허용
-                .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/webjars/**").permitAll()
-                // WebSocket 엔드포인트는 인증 필요
+                .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/webjars/**","/favicon.ico").permitAll()
                 .requestMatchers("/ws/**").permitAll()
                 // H2 콘솔 허용 (개발용)
                 .requestMatchers("/h2-console/**").permitAll()
                 // API 엔드포인트 중 인증 불필요한 것들
                 .requestMatchers("/api/users/register", "/api/users/login").permitAll()
                 // 채팅 API 엔드포인트는 인증 필요
-                .requestMatchers("/api/chat/**").authenticated()
+                .requestMatchers("/api/chat/**").permitAll()
                 // 나머지 모든 요청은 인증 필요
                 .anyRequest().authenticated()
             )

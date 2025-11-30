@@ -158,8 +158,24 @@ src/main/java/com/example/mafiagame/
 - HTTPS 적용
 - 입력값 검증 및 XSS 방지
 
+## 에러 사항과 해결 방법
+
+### WebSocket 및 인증 관련
+- **StompHandler principal 유실 문제**: 인증한 사용자 정보가 다른 스레드에서 작동하는 ChatController로 넘어가는 과정에서 principal 유실 → StompHandler가 인증에 성공한 직후, websocket 세션 공유 공간을 이용하여 principal 정보를 가져오도록 해결
+- **WebSocket 연결 타이밍 문제**: 로그인 시 websocket을 바로 연결하면 리소스를 입장 전에 잡아먹어 대규모에 부적합하지만, 사용자가 방에 입장할 때 지연시간이 없고 로비에서 친구의 접속 상태 알림이나 전체 공지사항 등 추후 기능에 용이
+
+### 데이터 관리 및 동기화
+- **로컬 상태 관리 취약점**: sendMessage.senderId == "SYSTEM" && message.content.includes("입장") || message.content.includes("퇴장") 일 때 local Count를 수정하여 형식 변경 취약, 데이터 표현 분리 부족 → 서버가 신뢰할 수 있는 단일 데이터 소스(Single Source of Truth) 역할을 하도록 아키텍처를 개선, 사용자가 입장하거나 퇴장할 때 명확한 타입(JOIN, LEAVE)과 함께 방의 최신 참가자 목록 전체를 데이터 페이로드에 담아 전송하도록 해결
+- **ConcurrentHashMap 연결 끊김 문제**: ConcurrentHashMap을 통해 WebSocket과의 연결 데이터를 관리하기 때문에 새로고침 시 WebSocket과의 연결이 끊어짐 → Redis를 이용한 WebSocket의 연결 데이터를 관리하게 되면 새로고침을 하더라도 Redis서버에 데이터가 저장되어 지속적인 서비스 연결 가능하여 해결
+
+### 게임 로직 및 성능
+- **방장 권한 이전 문제**: 채팅방의 방장이 방 나가기 실행 시 방장 권한이 아무에게도 넘어가지 않아 게임실행이 불가 → 해당 채팅방에 참가자 리스트 순서대로 방장 권한 전가하도록 해결
+- **게임 타이머 스레드 문제**: 모든 게임에 하나의 gameTimer를 하나씩 두어 여러개의 game이 시작 시 game 수 만큼의 gameTimer가 생성되고 감당할 수 없는 thread를 사용하게 됨 → 중앙 집중형 스케줄러로 해결
+- **JSON 직렬화 순환 참조 문제**: 게임 시작 시 MessageConversionException 발생 (Document nesting depth exceeds the maximum allowed) → Game과 GamePlayer 간의 양방향 참조로 인한 순환 참조 문제였음. Jackson이 JSON 직렬화 시 무한 루프에 빠져서 발생. @JsonManagedReference와 @JsonBackReference 어노테이션을 사용하여 순환 참조를 방지하고 JSON 직렬화 시 깊이 제한을 초과하지 않도록 해결
+
 ## 🚧 향후 개선 계획
 
+- [ ] 중앙 집중형 방 정보 업데이트
 - [ ] 게임 타이머 기능
 - [ ] 게임 히스토리 저장
 - [ ] 더 많은 역할 추가
