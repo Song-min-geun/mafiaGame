@@ -16,9 +16,11 @@ import java.util.Map;
 public class ChatRoomRestController {
 
     private final ChatRoomService chatRoomService;
+    private final com.example.mafiagame.game.service.GameService gameService;
 
     @PostMapping
-    public ResponseEntity<ChatRoom> createRoom(@RequestBody Map<String, String> request, Authentication authentication) {
+    public ResponseEntity<ChatRoom> createRoom(@RequestBody Map<String, String> request,
+            Authentication authentication) {
         String roomName = request.get("roomName");
         String hostId = authentication.getName(); // 인증된 사용자 정보 사용
         ChatRoom room = chatRoomService.createRoom(roomName, hostId);
@@ -27,7 +29,12 @@ public class ChatRoomRestController {
 
     @GetMapping
     public ResponseEntity<List<ChatRoom>> getAllRooms() {
-        return ResponseEntity.ok(chatRoomService.getAllRooms());
+        List<ChatRoom> rooms = chatRoomService.getAllRooms();
+        rooms.forEach(room -> {
+            boolean isPlaying = gameService.getGameByRoomId(room.getRoomId()) != null;
+            room.setPlaying(isPlaying);
+        });
+        return ResponseEntity.ok(rooms);
     }
 
     @GetMapping("/{roomId}")

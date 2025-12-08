@@ -262,6 +262,46 @@ body {
     color: var(--text-muted);
 }
 
+.room-filters {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 0.9rem;
+}
+
+.filter-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.filter-checkbox:hover {
+    color: var(--text-main);
+}
+
+.sort-select {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-main);
+    padding: 4px 8px;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+}
+
+.sort-select:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.sort-select option {
+    background: #222;
+    color: var(--text-main);
+}
+
 .refresh-btn {
     background: transparent;
     border: none;
