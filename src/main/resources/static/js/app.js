@@ -13,6 +13,7 @@ let isTokenExpired = false; // 토큰 만료 상태
 let gameTimer = null;
 let currentGameId = null;
 let timeExtensionUsed = false;
+let allRooms = []; // ❗ 추가: 모든 방 목록 저장
 
 // ❗ 추가: 페이지 로드 시 로그인 체크
 document.addEventListener('DOMContentLoaded', async () => {
@@ -82,12 +83,15 @@ async function login(event) {
         currentUser = userResult.data;
         localStorage.setItem('jwtToken', jwtToken);
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+        // ❗ 수정: 로그인 직후 UI 즉시 업데이트 (웹소켓 연결 대기 전)
+        updateUserInfo();
         document.getElementById('loginForm').classList.add('hidden');
         document.getElementById('registerForm').classList.add('hidden');
         document.getElementById('gameScreen').classList.remove('hidden');
 
 
-        // WebSocket 연결 후 개인 메시지 구독 설정
+        // WebSocket 연결 후 개인 메시지 구독 및 로비 구독 설정
         await connectWebSocket();
 
         // 로그인 시 새로고침 타이머 초기화 (즉시 새로고침 가능하도록)
@@ -95,7 +99,6 @@ async function login(event) {
 
         //await loadRooms();
         await refreshRoomList();
-        updateUserInfo();
         updateGameButtons();
     } catch (error) {
         alert(error.message);
@@ -241,14 +244,8 @@ function connectWebSocket() {
                 // 연결 성공 시 개인 메시지 구독
                 subscribeToPrivateMessages();
 
-                // 방 목록 갱신을 위한 공용 토픽 구독
-                stompClient.subscribe('/topic/rooms', (message) => {
-                    const roomUpdate = JSON.parse(message.body);
-                    if (roomUpdate.type === 'ROOM_LIST_UPDATED') {
-                        console.log('방 목록 갱신 신호 수신, 목록을 새로고침합니다.');
-                        loadRooms();
-                    }
-                });
+                // ❗ 추가: 로비 구독 (방 목록 갱신)
+                subscribeToLobby();
             },
             error => {
                 const statusElem = document.getElementById('headerConnectionStatus');
@@ -320,6 +317,21 @@ function subscribeToPrivateMessages() {
     });
 
     console.log('개인 메시지 구독 완료');
+    console.log('개인 메시지 구독 완료');
+}
+
+// ❗ 추가: 로비 구독 함수
+function subscribeToLobby() {
+    if (!stompClient || !stompClient.connected) return;
+
+    console.log('로비 구독 시작 (/topic/rooms)');
+    stompClient.subscribe('/topic/rooms', (message) => {
+        const roomUpdate = JSON.parse(message.body);
+        if (roomUpdate.type === 'ROOM_LIST_UPDATED') {
+            console.log('방 목록 갱신 신호 수신, 목록을 새로고침합니다.');
+            loadRooms();
+        }
+    });
 }
 
 // --- 방 관리 및 메시지 관련 함수 ---
@@ -348,48 +360,8 @@ async function loadRooms() {
             throw new Error(`방 목록 로드 실패: ${response.status} ${response.statusText}`);
         }
 
-        const rooms = await response.json();
-        const roomList = document.getElementById('roomList');
-
-        if (!roomList) {
-            console.error('roomList 요소를 찾을 수 없습니다.');
-            return;
-        }
-
-        roomList.innerHTML = '';
-
-        if (rooms.length === 0) {
-            roomList.innerHTML = '<div class="room-item no-rooms">현재 생성된 방이 없습니다.</div>';
-        } else {
-            rooms.forEach(room => {
-                const roomItem = document.createElement('div');
-                roomItem.className = 'room-item';
-
-                // ❗ 추가: 방 정보 표시 개선
-                const participantCount = room.participants ? room.participants.length : 0;
-                const maxPlayers = room.maxPlayers || 8;
-                const isCurrentRoom = currentRoom === room.roomId;
-                const roomName = room.roomName || `방 ${room.roomId}`;
-
-                // ✅ 추가: 현재 방 정보 업데이트
-                if (isCurrentRoom && !currentRoomInfo) {
-                    currentRoomInfo = room;
-                    updateGameButtons(); // 방 정보 업데이트 후 버튼 상태 갱신
-                }
-
-                roomItem.innerHTML = `
-                    <div class="room-info">
-                        <strong class="room-name" title="${roomName}">${roomName}</strong>
-                        <span class="room-count">${participantCount}/${maxPlayers}</span>
-                    </div>
-                    ${isCurrentRoom ? '<span class="current-room-badge">현재 방</span>' : ''}
-                `;
-
-                roomItem.onclick = () => joinRoom(room.roomId);
-                roomList.appendChild(roomItem);
-            });
-        }
-
+        allRooms = await response.json();
+        filterAndSortRooms();
 
     } catch (error) {
         const roomList = document.getElementById('roomList');
@@ -398,6 +370,82 @@ async function loadRooms() {
         }
     }
 }
+
+// ❗ 추가: 방 목록 필터링 및 정렬 함수
+function filterAndSortRooms() {
+    const hidePlaying = document.getElementById('hidePlayingCheckbox').checked;
+    const sortBy = document.getElementById('roomSortSelect').value;
+    const roomList = document.getElementById('roomList');
+
+    if (!roomList) return;
+
+    let displayRooms = [...allRooms];
+
+    // 1. 필터링 (진행중인 게임 숨기기)
+    if (hidePlaying) {
+        displayRooms = displayRooms.filter(room => !room.playing);
+    }
+
+    // 2. 정렬
+    displayRooms.sort((a, b) => {
+        if (sortBy === 'countDesc') {
+            const countA = a.participants ? a.participants.length : 0;
+            const countB = b.participants ? b.participants.length : 0;
+            // 인원수가 같으면 이름순
+            if (countB !== countA) return countB - countA;
+            return (a.roomName || '').localeCompare(b.roomName || '');
+        } else if (sortBy === 'nameAsc') {
+            return (a.roomName || '').localeCompare(b.roomName || '');
+        }
+        return 0;
+    });
+
+    // 3. 렌더링
+    roomList.innerHTML = '';
+
+    if (displayRooms.length === 0) {
+        roomList.innerHTML = '<div class="room-item no-rooms">표시할 방이 없습니다.</div>';
+        return;
+    }
+
+    displayRooms.forEach(room => {
+        const roomItem = document.createElement('div');
+        roomItem.className = 'room-item';
+        if (room.playing) {
+            roomItem.classList.add('playing');
+        }
+
+        const participantCount = room.participants ? room.participants.length : 0;
+        const maxPlayers = room.maxPlayers || 8;
+        const isCurrentRoom = currentRoom === room.roomId;
+        let roomName = room.roomName || `방 ${room.roomId}`;
+
+        // 진행중 상태 표시
+        if (room.playing) {
+            roomName = `[진행중] ${roomName}`;
+        }
+
+        // 현재 방 정보 업데이트 (여기서는 렌더링만 하므로 상태 업데이트는 최소화)
+        if (isCurrentRoom && !currentRoomInfo) {
+            currentRoomInfo = room;
+            updateGameButtons();
+        }
+
+        roomItem.innerHTML = `
+            <div class="room-info">
+                <strong class="room-name" title="${roomName}">${roomName}</strong>
+                <span class="room-count">${participantCount}/${maxPlayers}</span>
+            </div>
+            ${isCurrentRoom ? '<span class="current-room-badge">현재 방</span>' : ''}
+        `;
+
+        roomItem.onclick = () => joinRoom(room.roomId);
+        roomList.appendChild(roomItem);
+    });
+}
+
+
+
 
 async function createRoom() {
     const roomName = prompt('방 이름을 입력하세요:');

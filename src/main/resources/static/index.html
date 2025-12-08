@@ -74,6 +74,15 @@
 
                 <div class="room-list-header">
                     <h3>채팅룸 목록</h3>
+                    <div class="room-filters">
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="hidePlayingCheckbox" onchange="filterAndSortRooms()"> 진행중인 게임 숨기기
+                        </label>
+                        <select id="roomSortSelect" onchange="filterAndSortRooms()" class="sort-select">
+                            <option value="countDesc">인원순</option>
+                            <option value="nameAsc">이름순</option>
+                        </select>
+                    </div>
                     <button onclick="refreshRoomList()" class="refresh-btn" id="refreshBtn">
                         <span class="refresh-icon">🔄</span>
                         <span class="refresh-text">새로고침</span>
