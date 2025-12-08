@@ -388,6 +388,12 @@ function filterAndSortRooms() {
 
     // 2. 정렬
     displayRooms.sort((a, b) => {
+        // ❗ 추가: 현재 참여 중인 방을 최상단으로
+        if (currentRoom) {
+            if (a.roomId === currentRoom) return -1;
+            if (b.roomId === currentRoom) return 1;
+        }
+
         if (sortBy === 'countDesc') {
             const countA = a.participants ? a.participants.length : 0;
             const countB = b.participants ? b.participants.length : 0;
