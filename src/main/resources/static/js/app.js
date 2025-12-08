@@ -1135,28 +1135,18 @@ function updateTimerDisplay(game) {
             timerCountdown.classList.remove('warning');
         }
 
-        // 시간 연장/단축 버튼 제어 (방장만 가능)
-        const isHost = currentRoomInfo && currentRoomInfo.hostId === currentUser.userLoginId;
+        // 시간 연장/단축 버튼 제어 (모든 사용자 가능)
+        extendButtons.forEach(button => {
+            button.style.display = 'inline-block';
+        });
 
-        if (isHost) {
-            // 방장인 경우 버튼 표시 및 활성화 상태 관리
-            extendButtons.forEach(button => {
-                button.style.display = 'inline-block';
-            });
+        // 투표 페이즈거나 낮 대화 페이즈일 때만 시간 조절 가능
+        const isTimeControllablePhase = game.gamePhase === 'DAY_DISCUSSION' || game.gamePhase === 'DAY_VOTING';
+        const canExtend = isTimeControllablePhase && !timeExtensionUsed && remainingTime > 0;
 
-            // 투표 페이즈거나 낮 대화 페이즈일 때만 시간 조절 가능
-            const isTimeControllablePhase = game.gamePhase === 'DAY_DISCUSSION' || game.gamePhase === 'DAY_VOTING';
-            const canExtend = isTimeControllablePhase && !timeExtensionUsed && remainingTime > 0;
-
-            extendButtons.forEach(button => {
-                button.disabled = !canExtend;
-            });
-        } else {
-            // 방장이 아닌 경우 버튼 숨김
-            extendButtons.forEach(button => {
-                button.style.display = 'none';
-            });
-        }
+        extendButtons.forEach(button => {
+            button.disabled = !canExtend;
+        });
     }
 
     // ❗ 추가: 게임 상태에 따른 UI 업데이트
