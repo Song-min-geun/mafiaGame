@@ -74,10 +74,6 @@
 
                 <div class="room-list-header">
                     <h3>채팅룸 목록</h3>
-                    <button onclick="devQuickStart()" class="dev-btn"
-                        style="background-color: #ff4444; color: white; margin-right: 10px;">
-                        ⚡ DEV: Quick Start (8인)
-                    </button>
                     <button onclick="refreshRoomList()" class="refresh-btn" id="refreshBtn">
                         <span class="refresh-icon">🔄</span>
                         <span class="refresh-text">새로고침</span>
@@ -127,7 +123,7 @@
                     <div class="voting-options" id="votingOptions">
                         <!-- 투표 대상 플레이어들이 여기에 표시됩니다 -->
                     </div>
-                    <div class="voting-actions">
+                    <div class="voting-actions" style="display: none;">
                         <button onclick="submitVote()" id="submitVoteBtn" disabled>투표하기</button>
                         <button onclick="cancelVote()" id="cancelVoteBtn">취소</button>
                     </div>
@@ -142,7 +138,7 @@
                     <div class="night-action-options" id="nightActionOptions">
                         <!-- 밤 액션 대상 플레이어들이 여기에 표시됩니다 -->
                     </div>
-                    <div class="night-action-actions">
+                    <div class="night-action-actions" style="display: none;">
                         <button onclick="submitNightAction()" id="submitNightActionBtn" disabled>액션 실행</button>
                         <button onclick="cancelNightAction()" id="cancelNightActionBtn">취소</button>
                     </div>
