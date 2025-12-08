@@ -440,7 +440,7 @@ async function createRoom() {
         updateUserInfo();
         // ❗ 추가: 버튼 상태 업데이트
         updateGameButtons();
-        // 주석: loadRooms()는 서버에서 보내는 ROOM_LIST_UPDATED 메시지로 자동 호출됨
+        await loadRooms();
 
     } catch (error) {
         alert(error.message);
@@ -1081,18 +1081,27 @@ function updateTimerDisplay(game) {
             timerCountdown.classList.remove('warning');
         }
 
-        // 시간 연장 버튼 활성화/비활성화
-        const canExtend = !timeExtensionUsed && remainingTime > 0;
-        extendButtons.forEach(button => {
-            button.disabled = !canExtend;
-        });
+        // 시간 연장/단축 버튼 제어 (방장만 가능)
+        const isHost = currentRoomInfo && currentRoomInfo.hostId === currentUser.userLoginId;
 
-        // 투표 페이즈에서는 시간 연장 기회가 있으면 버튼 활성화
-        if (game.gamePhase === 'DAY_VOTING' && !timeExtensionUsed) {
-            const extendBtn = document.getElementById('extendTimeBtn');
-            const reduceBtn = document.getElementById('reduceTimeBtn');
-            if (extendBtn) extendBtn.disabled = false;
-            if (reduceBtn) reduceBtn.disabled = false;
+        if (isHost) {
+            // 방장인 경우 버튼 표시 및 활성화 상태 관리
+            extendButtons.forEach(button => {
+                button.style.display = 'inline-block';
+            });
+
+            // 투표 페이즈거나 낮 대화 페이즈일 때만 시간 조절 가능
+            const isTimeControllablePhase = game.gamePhase === 'DAY_DISCUSSION' || game.gamePhase === 'DAY_VOTING';
+            const canExtend = isTimeControllablePhase && !timeExtensionUsed && remainingTime > 0;
+
+            extendButtons.forEach(button => {
+                button.disabled = !canExtend;
+            });
+        } else {
+            // 방장이 아닌 경우 버튼 숨김
+            extendButtons.forEach(button => {
+                button.style.display = 'none';
+            });
         }
     }
 
@@ -1202,7 +1211,7 @@ function updateGameUI(game) {
                 hideAllGameUI();
             }
             break;
-        case 'DAY_FINAL_VOTE':
+        case 'DAY_FINAL_VOTING':
             // 최종 투표 - 찬성/반대 투표 UI 표시
             if (!isVotingVisible && !isVotedPlayerInfoVisible) {
                 showFinalVoteUI(game);
@@ -1255,6 +1264,13 @@ function showNightActionUI(game, currentPlayer) {
     const nightActionArea = document.getElementById('nightActionArea');
 
     if (votingArea) votingArea.style.display = 'none';
+
+    // 시민인 경우 밤 액션 UI를 아예 표시하지 않음
+    if (currentPlayer.role === 'CITIZEN') {
+        if (nightActionArea) nightActionArea.style.display = 'none';
+        return;
+    }
+
     if (nightActionArea) nightActionArea.style.display = 'block';
 
     // 역할에 따른 액션 설정
@@ -1265,42 +1281,40 @@ function showNightActionUI(game, currentPlayer) {
     if (title && description && options) {
         switch (currentPlayer.role) {
             case 'MAFIA':
-                title.textContent = '마피아 액션';
-                description.textContent = '제거할 플레이어를 선택하세요';
+                title.textContent = '마피아 - 암살';
+                description.textContent = '밤이 되었습니다. 제거할 플레이어를 선택하세요.';
                 break;
             case 'DOCTOR':
-                title.textContent = '의사 액션';
-                description.textContent = '치료할 플레이어를 선택하세요';
+                title.textContent = '의사 - 치료';
+                description.textContent = '밤이 되었습니다. 마피아의 공격으로부터 보호할 플레이어를 선택하세요. (자신 선택 가능)';
                 break;
             case 'POLICE':
-                title.textContent = '경찰 액션';
-                description.textContent = '조사할 플레이어를 선택하세요';
+                title.textContent = '경찰 - 수사';
+                description.textContent = '밤이 되었습니다. 마피아인지 조사할 플레이어를 선택하세요.';
                 break;
             default:
                 title.textContent = '밤 시간';
-                description.textContent = '특수 역할이 아닙니다';
+                description.textContent = '잠시 기다려주세요...';
                 break;
         }
 
         // 액션 대상 플레이어 목록 생성
         options.innerHTML = '';
 
-        if (currentPlayer.role !== 'CITIZEN') {
-            game.players.forEach(player => {
-                // 의사는 자기 자신도 치료할 수 있음
-                const canSelectSelf = currentPlayer.role === 'DOCTOR';
-                const isSelf = player.playerId === currentUser.userLoginId;
+        game.players.forEach(player => {
+            // 의사는 자기 자신도 치료할 수 있음
+            const canSelectSelf = currentPlayer.role === 'DOCTOR';
+            const isSelf = player.playerId === currentUser.userLoginId;
 
-                if (player.isAlive && (canSelectSelf || !isSelf)) {
-                    const option = document.createElement('div');
-                    option.className = 'night-action-option';
-                    option.textContent = player.playerName + (isSelf ? ' (나)' : '');
-                    option.dataset.playerId = player.playerId;
-                    option.onclick = () => selectNightActionTarget(player.playerId);
-                    options.appendChild(option);
-                }
-            });
-        }
+            if (player.isAlive && (canSelectSelf || !isSelf)) {
+                const option = document.createElement('div');
+                option.className = 'night-action-option';
+                option.textContent = player.playerName + (isSelf ? ' (나)' : '');
+                option.dataset.playerId = player.playerId;
+                option.onclick = () => selectNightActionTarget(player.playerId);
+                options.appendChild(option);
+            }
+        });
     }
 }
 
@@ -1345,7 +1359,9 @@ function showFinalVoteUI(game) {
     // 투표 설명 설정
     const votingDescription = document.getElementById('votingDescription');
     if (votingDescription) {
-        votingDescription.textContent = `최종 투표: ${game.votedPlayerName}님에 대한 찬성 또는 반대를 선택하세요`;
+        const votedPlayer = game.players.find(p => p.playerId === game.votedPlayerId);
+        const votedPlayerName = votedPlayer ? votedPlayer.playerName : '알 수 없음';
+        votingDescription.textContent = `최종 투표: ${votedPlayerName}님에 대한 찬성 또는 반대를 선택하세요`;
         votingDescription.style.color = '#333';
         votingDescription.style.fontWeight = 'normal';
     }
@@ -1364,10 +1380,7 @@ function showFinalVoteUI(game) {
             agreeButton.classList.add('selected');
             disagreeButton.classList.remove('selected');
 
-            // 버튼 비활성화
-            agreeButton.disabled = true;
-            disagreeButton.disabled = true;
-
+            // 버튼 비활성화 하지 않음 (재투표 가능)
             submitFinalVote('AGREE');
         };
 
@@ -1380,10 +1393,7 @@ function showFinalVoteUI(game) {
             disagreeButton.classList.add('selected');
             agreeButton.classList.remove('selected');
 
-            // 버튼 비활성화
-            agreeButton.disabled = true;
-            disagreeButton.disabled = true;
-
+            // 버튼 비활성화 하지 않음 (재투표 가능)
             submitFinalVote('DISAGREE');
         };
 
@@ -1448,8 +1458,11 @@ function selectVoteTarget(playerId) {
         selectedOption.classList.add('selected');
     }
 
-    // 투표 버튼 상태 업데이트
-    updateVoteButtons();
+    // 투표 버튼 상태 업데이트 (제거됨)
+    // updateVoteButtons();
+
+    // ❗ 변경: 선택 즉시 투표 제출
+    submitVote();
 }
 
 // ❗ 추가: 밤 액션 대상 선택
@@ -1467,11 +1480,14 @@ function selectNightActionTarget(playerId) {
         selectedOption.classList.add('selected');
     }
 
-    // 액션 버튼 활성화
-    const submitBtn = document.getElementById('submitNightActionBtn');
-    if (submitBtn) {
-        submitBtn.disabled = false;
-    }
+    // 액션 버튼 활성화 (제거됨)
+    // const submitBtn = document.getElementById('submitNightActionBtn');
+    // if (submitBtn) {
+    //     submitBtn.disabled = false;
+    // }
+
+    // ❗ 변경: 선택 즉시 액션 제출
+    submitNightAction();
 }
 
 // ❗ 추가: 투표 버튼 상태 업데이트
@@ -1502,13 +1518,9 @@ async function submitVote() {
     };
 
     stompClient.send("/app/game.vote", {}, JSON.stringify(votePayload));
-    alert('투표를 완료했습니다.');
-    // 투표 후 UI 즉시 비활성화
-    document.querySelectorAll('.voting-option').forEach(option => {
-        option.onclick = null;
-        option.classList.add('disabled');
-    });
-    document.getElementById('submitVoteBtn').disabled = true;
+    // alert('투표를 완료했습니다.'); // 제거
+
+    // 투표 후 UI 비활성화 하지 않음 (재투표 가능)
 }
 
 // ❗ 추가: 투표 취소
@@ -1539,13 +1551,9 @@ async function submitNightAction() {
     };
 
     stompClient.send("/app/game.nightAction", {}, JSON.stringify(nightActionPayload));
-    alert('액션을 완료했습니다.');
-    // 액션 후 UI 즉시 비활성화
-    document.querySelectorAll('.night-action-option').forEach(option => {
-        option.onclick = null;
-        option.classList.add('disabled');
-    });
-    document.getElementById('submitNightActionBtn').disabled = true;
+    // alert('액션을 완료했습니다.'); // 제거
+
+    // 액션 후 UI 비활성화 하지 않음 (재선택 가능)
 }
 
 // ❗ 추가: 밤 액션 취소

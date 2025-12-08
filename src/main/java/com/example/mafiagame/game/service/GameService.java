@@ -110,9 +110,9 @@ public class GameService {
         if (game == null || game.getStatus() != GameStatus.IN_PROGRESS)
             return;
         switch (game.getGamePhase()) {
-            case DAY_DISCUSSION -> toPhase(game, GamePhase.DAY_VOTING, 30);
+            case DAY_DISCUSSION -> toPhase(game, GamePhase.DAY_VOTING, 60);
             case DAY_VOTING -> processDayVoting(game);
-            case DAY_FINAL_DEFENSE -> toPhase(game, GamePhase.DAY_FINAL_VOTING, 15);
+            case DAY_FINAL_DEFENSE -> toPhase(game, GamePhase.DAY_FINAL_VOTING, 60);
             case DAY_FINAL_VOTING -> processFinalVoting(game);
             case NIGHT_ACTION -> processNight(game);
         }
@@ -162,7 +162,7 @@ public class GameService {
         } else {
             String votedPlayerId = topVotedPlayers.get(0);
             game.setVotedPlayerId(votedPlayerId);
-            toPhase(game, GamePhase.DAY_FINAL_DEFENSE, 15);
+            toPhase(game, GamePhase.DAY_FINAL_DEFENSE, 60);
             Optional.ofNullable(findPlayerById(game, votedPlayerId))
                     .ifPresent(player -> sendSystemMessage(game.getRoomId(),
                             String.format("투표 결과 %s님이 최다 득표자가 되었습니다. 최후 변론을 시작합니다.", player.getPlayerName())));
@@ -234,7 +234,7 @@ public class GameService {
     }
 
     private void toNightPhase(Game game) {
-        toPhase(game, GamePhase.NIGHT_ACTION, 30);
+        toPhase(game, GamePhase.NIGHT_ACTION, 15);
         game.setIsDay(false);
         game.getVotes().clear();
         game.getFinalVotes().clear();
@@ -269,6 +269,13 @@ public class GameService {
             log.error("updateTime 실패: 게임을 찾을 수 없음 (gameId: {})", gameId);
             return false;
         }
+
+        // ❗ 추가: 낮 토론 시간 외에는 시간 조절 불가
+        if (game.getGamePhase() != GamePhase.DAY_DISCUSSION) {
+            log.warn("updateTime 실패: 현재 페이즈({})에서는 시간 조절 불가", game.getGamePhase());
+            return false;
+        }
+
         game.setRemainingTime(Math.max(0, game.getRemainingTime() + seconds));
         sendTimerUpdate(game);
 
