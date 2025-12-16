@@ -63,8 +63,19 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.session:spring-session-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-cache'
+    
+    //nGinder
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    testLogging {
+        showStandardStreams = true  // System.out.println 출력 허용
+        events "passed", "skipped", "failed" // 테스트 통과/실패 여부도 로그에 찍힘
+    }
 }
+
+
