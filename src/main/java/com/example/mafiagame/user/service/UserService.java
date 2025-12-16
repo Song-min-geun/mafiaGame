@@ -93,12 +93,12 @@ public class UserService {
     @Transactional
     public void createDummyUsers(int count) {
         for (int i = 1; i <= count; i++) {
-            String dummyId = "player" + i;
+            String dummyId = "dummy" + i;
             if (userRepository.findByUserLoginId(dummyId).isEmpty()) {
                 User user = User.builder()
                         .userLoginId(dummyId)
-                        .userLoginPassword(passwordEncoder.encode("password"))
-                        .nickname("플레이어" + i)
+                        .userLoginPassword(passwordEncoder.encode("password1234!"))
+                        .nickname("dummy" + i)
                         .userRole(USER)
                         .build();
                 userRepository.save(user);
