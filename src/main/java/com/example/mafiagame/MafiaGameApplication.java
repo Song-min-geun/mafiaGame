@@ -19,8 +19,8 @@ public class MafiaGameApplication {
     @Bean
     public CommandLineRunner initDummyData(UserService userService) {
         return args -> {
-            userService.createDummyUsers(10); // dummy1 ~ dummy10 자동 생성
-            System.out.println("✅ 테스트용 더미 유저 10명 생성 완료!");
+            userService.createDummyUsers(100); // dummy1 ~ dummy100 자동 생성
+            System.out.println("✅ 테스트용 더미 유저 100명 생성 완료!");
         };
     }
 }

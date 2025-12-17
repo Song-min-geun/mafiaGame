@@ -45,11 +45,11 @@ public class GameTimerService {
         }
 
         int remainingTime = game.getRemainingTime();
-                    if (remainingTime > 0) {
-                        game.setRemainingTime(remainingTime - 1);
-                        sendTimerUpdate(game);
-                    } else {            // 시간이 종료되면 GameService에 단계 전환을 위임합니다.
-            log.info("시간 종료! GameService에 페이즈 전환 위임: {}", gameId);
+        if (remainingTime > 0) {
+            game.setRemainingTime(remainingTime - 1);
+            sendTimerUpdate(game);
+        } else { // 시간이 종료되면 GameService에 단계 전환을 위임합니다.
+            // log.info("시간 종료! GameService에 페이즈 전환 위임: {}", gameId);
             gameService.advancePhase(gameId);
         }
     }
@@ -57,14 +57,13 @@ public class GameTimerService {
     private void sendTimerUpdate(Game game) {
         try {
             Map<String, Object> message = Map.of(
-                "type", "TIMER_UPDATE",
-                "gameId", game.getGameId(),
-                "roomId", game.getRoomId(),
-                "remainingTime", game.getRemainingTime(),
-                "gamePhase", game.getGamePhase().toString(),
-                "currentPhase", game.getCurrentPhase(),
-                "isDay", game.isDay()
-            );
+                    "type", "TIMER_UPDATE",
+                    "gameId", game.getGameId(),
+                    "roomId", game.getRoomId(),
+                    "remainingTime", game.getRemainingTime(),
+                    "gamePhase", game.getGamePhase().toString(),
+                    "currentPhase", game.getCurrentPhase(),
+                    "isDay", game.isDay());
             messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(), message);
         } catch (Exception e) {
             log.error("타이머 업데이트 메시지 전송 실패: {}", game.getGameId(), e);

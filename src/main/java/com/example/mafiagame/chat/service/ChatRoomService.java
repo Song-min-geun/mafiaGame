@@ -63,8 +63,9 @@ public class ChatRoomService {
         chatMessage.setSenderName(sender.getNickname());
 
         // recipientId는 로그인 아이디(Principal 이름)여야 함
-        log.info("개인 메시지 전송 시도: senderId={}, recipientId={}, destination=/user/{}/queue/private",
-                senderId, recipientId, recipientId);
+        // log.info("개인 메시지 전송 시도: senderId={}, recipientId={},
+        // destination=/user/{}/queue/private",
+        // senderId, recipientId, recipientId);
 
         // 사용자 등록 상태 확인
         SimpUserRegistry userRegistry = getSimpUserRegistry();
@@ -72,19 +73,20 @@ public class ChatRoomService {
             var recipientUser = userRegistry.getUser(recipientId);
             if (recipientUser == null) {
                 log.warn("수신자가 WebSocket에 등록되지 않음: {}", recipientId);
-                log.info("현재 등록된 사용자들: {}", userRegistry.getUsers());
+                // log.info("현재 등록된 사용자들: {}", userRegistry.getUsers());
                 sendErrorMessageToUser(senderId, "수신자가 온라인이 아닙니다.");
                 return;
             }
 
-            log.info("수신자 등록 확인됨: {} (세션 수: {})", recipientId, recipientUser.getSessions().size());
+            // log.info("수신자 등록 확인됨: {} (세션 수: {})", recipientId,
+            // recipientUser.getSessions().size());
         } else {
             log.warn("SimpUserRegistry를 사용할 수 없어 사용자 등록 상태를 확인할 수 없습니다.");
         }
 
         try {
             messagingTemplate.convertAndSendToUser(recipientId, "/queue/private", chatMessage);
-            log.info("개인 메시지 전송 성공: from {} to {}", senderId, recipientId);
+            // log.info("개인 메시지 전송 성공: from {} to {}", senderId, recipientId);
         } catch (Exception e) {
             log.error("개인 메시지 전송 실패: from {} to {}, error: {}", senderId, recipientId, e.getMessage());
             sendErrorMessageToUser(senderId, "메시지 전송에 실패했습니다.");
@@ -98,7 +100,7 @@ public class ChatRoomService {
         ChatRoom room = new ChatRoom(roomName, host.getUserLoginId(), host.getNickname());
         room.addParticipant(host.getUserLoginId(), host.getNickname(), true);
         chatRooms.put(room.getRoomId(), room);
-        log.info("채팅방 생성됨: {} (호스트: {})", room.getRoomId(), host.getNickname());
+        // log.info("채팅방 생성됨: {} (호스트: {})", room.getRoomId(), host.getNickname());
         return room;
     }
 
@@ -162,7 +164,7 @@ public class ChatRoomService {
     private void deleteRoom(String roomId) {
         // 메모리에서 제거
         chatRooms.remove(roomId);
-        log.info("채팅방 삭제됨: {}", roomId);
+        // log.info("채팅방 삭제됨: {}", roomId);
     }
 
     public void handleDisconnect(String userId) {
@@ -217,7 +219,8 @@ public class ChatRoomService {
                 "type", "ERROR",
                 "content", errorMessage);
 
-        log.info("에러 메시지 전송 시도: userId={}, destination=/user/{}/queue/private", userId, userId);
+        // log.info("에러 메시지 전송 시도: userId={}, destination=/user/{}/queue/private",
+        // userId, userId);
 
         // 사용자 등록 상태 확인
         SimpUserRegistry userRegistry = getSimpUserRegistry();
@@ -232,7 +235,7 @@ public class ChatRoomService {
         try {
             // userId는 로그인 아이디(Principal 이름)여야 함
             messagingTemplate.convertAndSendToUser(userId, "/queue/private", message);
-            log.info("에러 메시지 전송 성공: userId={}", userId);
+            // log.info("에러 메시지 전송 성공: userId={}", userId);
         } catch (Exception e) {
             log.error("에러 메시지 전송 실패: userId={}, error: {}", userId, e.getMessage());
         }

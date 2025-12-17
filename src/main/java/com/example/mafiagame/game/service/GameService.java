@@ -31,7 +31,7 @@ public class GameService {
                 .build();
         playerList.forEach(player -> player.setGame(game));
         games.put(gameId, game);
-        log.info("게임 생성됨: {}", gameId);
+        // log.info("게임 생성됨: {}", gameId);
         return game;
     }
 
@@ -59,27 +59,27 @@ public class GameService {
 
             // Send role to each player privately
             String playerId = player.getPlayerId();
-            log.info("역할 배정 메시지 전송 시도: playerId={}, role={}", playerId, assignedRole);
+            // log.info("역할 배정 메시지 전송 시도: playerId={}, role={}", playerId, assignedRole);
 
             try {
                 Map<String, Object> message = Map.of(
                         "type", "ROLE_ASSIGNED",
                         "role", assignedRole.name(),
                         "roleDescription", getRoleDescription(assignedRole));
-                log.info("전송할 메시지 내용: {}", message);
+                // log.info("전송할 메시지 내용: {}", message);
 
                 // 개인 전용 큐로 메시지 전송 (/user/queue/private)
                 sendPrivateMessage(playerId, Map.of(
                         "type", "ROLE_ASSIGNED",
                         "role", assignedRole.name(),
                         "roleDescription", getRoleDescription(assignedRole)));
-                log.info("역할 배정 메시지 전송 완료: playerId={}", playerId);
+                // log.info("역할 배정 메시지 전송 완료: playerId={}", playerId);
 
             } catch (Exception e) {
                 log.error("역할 배정 메시지 전송 실패: playerId={}, error={}", playerId, e.getMessage(), e);
             }
         }
-        log.info("역할 배정 및 비공개 메시지 전송 완료: {}", gameId);
+        // log.info("역할 배정 및 비공개 메시지 전송 완료: {}", gameId);
     }
 
     public void startGame(String gameId) {
@@ -89,7 +89,7 @@ public class GameService {
         game.setStatus(GameStatus.IN_PROGRESS);
         game.setStartTime(LocalDateTime.now());
         toNextDayPhase(game);
-        log.info("게임 시작됨: {} (낮 대화: {}초)", gameId, game.getRemainingTime());
+        // log.info("게임 시작됨: {} (낮 대화: {}초)", gameId, game.getRemainingTime());
     }
 
     public void endGame(String gameId, String winner) {
@@ -101,7 +101,7 @@ public class GameService {
         game.setEndTime(LocalDateTime.now());
         messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(),
                 Map.of("type", "GAME_ENDED", "winner", winner, "players", game.getPlayers()));
-        log.info("게임 종료: {} - 승리자: {}", gameId, winner);
+        // log.info("게임 종료: {} - 승리자: {}", gameId, winner);
         games.remove(gameId);
     }
 
@@ -263,7 +263,8 @@ public class GameService {
     }
 
     public boolean updateTime(String gameId, String playerId, int seconds) {
-        log.info("updateTime 호출됨: gameId={}, playerId={}, seconds={}", gameId, playerId, seconds);
+        // log.info("updateTime 호출됨: gameId={}, playerId={}, seconds={}", gameId,
+        // playerId, seconds);
         Game game = getGame(gameId);
         if (game == null) {
             log.error("updateTime 실패: 게임을 찾을 수 없음 (gameId: {})", gameId);
@@ -281,7 +282,7 @@ public class GameService {
 
         GamePlayer player = findPlayerById(game, playerId);
         if (player != null) {
-            log.info("플레이어 찾음: {}. 시스템 메시지를 전송합니다.", player.getPlayerName());
+            // log.info("플레이어 찾음: {}. 시스템 메시지를 전송합니다.", player.getPlayerName());
             sendSystemMessage(game.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.", player.getPlayerName(),
                     Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
         } else {
@@ -333,7 +334,8 @@ public class GameService {
 
     private void sendPoliceInvestigationResult(GamePlayer police, GamePlayer target) {
         String policeId = police.getPlayerId();
-        log.info("경찰 조사 결과 전송: policeId={}, target={}", policeId, target.getPlayerName());
+        // log.info("경찰 조사 결과 전송: policeId={}, target={}", policeId,
+        // target.getPlayerName());
 
         // 개인 메시지로 전송 (헤더 포함)
         sendPrivateMessage(policeId, Map.of(
@@ -358,11 +360,12 @@ public class GameService {
         // SimpUserRegistry 문제로 인해 convertAndSendToUser 대신 직접 토픽을 사용합니다.
         // 클라이언트는 /topic/private/{userId}를 구독해야 합니다.
         String destination = "/topic/private/" + playerId;
-        log.info("sendPrivateMessage 호출: destination={}, payload={}", destination, payload);
+        // log.info("sendPrivateMessage 호출: destination={}, payload={}", destination,
+        // payload);
 
         try {
             messagingTemplate.convertAndSend(destination, payload);
-            log.info("sendPrivateMessage 성공: destination={}", destination);
+            // log.info("sendPrivateMessage 성공: destination={}", destination);
         } catch (Exception e) {
             log.error("sendPrivateMessage 실패: destination={}, error={}", destination, e.getMessage(), e);
         }
