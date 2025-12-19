@@ -46,13 +46,14 @@ public class UserController {
 
     @PostMapping("/login")
     public ResponseEntity<CommonResponse<Map<String, String>>> login(@Valid @RequestBody LoginRequest requestDto) {
-        String token = userService.login(requestDto);
+        var tokens = userService.login(requestDto);
 
-        Map<String, String> tokenMap = Map.of("token", token);
+        Map<String, String> tokenMap = Map.of(
+                "token", tokens.accessToken(),
+                "refreshToken", tokens.refreshToken());
 
         return ResponseEntity.status(HttpStatus.OK).body(CommonResponse.success(tokenMap, "로그인에 성공했습니다."));
     }
-
 
     // 현재 로그인한 사용자 정보 조회
     @GetMapping("/me")
@@ -61,16 +62,15 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(CommonResponse.failure("로그인이 필요합니다."));
         }
-        
+
         String userLoginId = authentication.getName();
         User user = userService.getUserByLoginId(userLoginId);
-        
+
         Map<String, Object> userInfo = Map.of(
-            "userId", user.getUserId(),
-            "userLoginId", user.getUserLoginId(),
-            "nickname", user.getNickname()
-        );
-        
+                "userId", user.getUserId(),
+                "userLoginId", user.getUserLoginId(),
+                "nickname", user.getNickname());
+
         return ResponseEntity.ok(CommonResponse.success(userInfo, "현재 사용자 정보 조회 성공"));
     }
 
@@ -83,7 +83,8 @@ public class UserController {
         if (isAdmin) {
             // 관리자일 경우, 관리자용 상세 정보를 조회하여 반환
             UserDetailForAdmin adminResponse = userService.getUserDetailForAdmin(userId);
-            return ResponseEntity.status(HttpStatus.OK).body(CommonResponse.success(adminResponse, "관리자용 사용자 정보 조회 성공"));
+            return ResponseEntity.status(HttpStatus.OK)
+                    .body(CommonResponse.success(adminResponse, "관리자용 사용자 정보 조회 성공"));
         } else {
             // 일반 사용자일 경우, 공개용 프로필 정보를 조회하여 반환
             UserDetailForUser publicResponse = userService.getUserDetailForUser(userId);
@@ -92,31 +93,30 @@ public class UserController {
     }
 
     @PutMapping("/password")
-    public ResponseEntity<CommonResponse<Void>> updateMyPassword(Authentication authentication, @Valid @RequestBody UpdatePasswordRequest requestDto) {
+    public ResponseEntity<CommonResponse<Void>> updateMyPassword(Authentication authentication,
+            @Valid @RequestBody UpdatePasswordRequest requestDto) {
 
         String userLoginId = authentication.getName();
 
         userService.updatePassword(
-            userLoginId,
-            requestDto.currentPassword(),
-            requestDto.newPassword()
-        );
+                userLoginId,
+                requestDto.currentPassword(),
+                requestDto.newPassword());
 
         return ResponseEntity.status(HttpStatus.OK).body(CommonResponse.success(null, "비밀번호가 성공적으로 변경되었습니다."));
     }
-    
+
     @GetMapping("/session")
     public ResponseEntity<CommonResponse<Map<String, String>>> getUserSession(Authentication authentication) {
         String userLoginId = authentication.getName();
-        
+
         String roomId = redisService.getUserRoomId(userLoginId);
         String gameId = redisService.getUserGameId(userLoginId);
-        
+
         Map<String, String> sessionData = Map.of(
-            "roomId", roomId != null ? roomId : "",
-            "gameId", gameId != null ? gameId : ""
-        );
-        
+                "roomId", roomId != null ? roomId : "",
+                "gameId", gameId != null ? gameId : "");
+
         return ResponseEntity.ok(CommonResponse.success(sessionData, "사용자 세션 조회 성공"));
     }
 }
