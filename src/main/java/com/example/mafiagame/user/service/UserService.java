@@ -1,5 +1,7 @@
 package com.example.mafiagame.user.service;
 
+import org.springframework.cache.annotation.CacheEvict;
+
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -8,8 +10,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.mafiagame.global.jwt.JwtUtil;
+import com.example.mafiagame.global.jwt.RefreshTokenService;
 import com.example.mafiagame.user.domain.User;
 import static com.example.mafiagame.user.domain.UserRole.USER;
+import com.example.mafiagame.user.dto.reponse.TokenResponse;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
 import com.example.mafiagame.user.dto.request.LoginRequest;
@@ -26,6 +30,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
+    private final RefreshTokenService refreshTokenService;
 
     // 유저 회원가입
     public void registerUser(RegistRequest request) {
@@ -43,16 +48,23 @@ public class UserService {
         userRepository.save(user);
     }
 
-    // 유저 로그인
+    // 유저 로그인 - Access + Refresh Token 반환
     @Transactional(readOnly = true)
-    public String login(LoginRequest request) {
+    public TokenResponse login(LoginRequest request) {
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.userLoginId(), request.userLoginPassword()));
         } catch (BadCredentialsException e) {
             throw new RuntimeException("아이디 또는 비밀번호가 일치하지 않습니다.");
         }
-        return jwtUtil.generateToken(request.userLoginId());
+
+        String accessToken = jwtUtil.generateAccessToken(request.userLoginId());
+        String refreshToken = jwtUtil.generateRefreshToken(request.userLoginId());
+
+        // Refresh Token을 Redis에 저장
+        refreshTokenService.saveRefreshToken(request.userLoginId(), refreshToken);
+
+        return new TokenResponse(accessToken, refreshToken);
     }
 
     // 유저 상세정보 확인 ( 유저용 )
@@ -79,6 +91,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(value = "userDetails", key = "#userLoginId")
     public void updatePassword(String userLoginId, String currentPassword, String newPassword) {
         User user = getUserByLoginId(userLoginId);
 
