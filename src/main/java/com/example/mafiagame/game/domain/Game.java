@@ -17,6 +17,7 @@ import jakarta.persistence.Transient;
 import lombok.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "games")
@@ -63,14 +64,6 @@ public class Game {
     @Column(name = "max_players", nullable = false)
     private int maxPlayers;
 
-    @Column(name = "has_doctor", nullable = false)
-    @Builder.Default
-    private boolean hasDoctor = false;
-
-    @Column(name = "has_police", nullable = false)
-    @Builder.Default
-    private boolean hasPolice = false;
-
     @Builder.Default
     @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
@@ -96,12 +89,7 @@ public class Game {
     @Builder.Default
     private int remainingTime = 60;
 
-    @Transient
-    private LocalDateTime phaseStartTime;
-
     private String votedPlayerId;
-
-
 
     // 시간 연장 관련 필드들
     @Transient
@@ -111,6 +99,12 @@ public class Game {
     @Transient
     @Builder.Default
     private Map<String, Boolean> votingTimeExtensionsUsed = new HashMap<>();
+
+    // 플레이어 ID → GamePlayer 캐시 (O(1) 검색용)
+    @Transient
+    @JsonIgnore
+    @Builder.Default
+    private Map<String, GamePlayer> playerMap = new HashMap<>();
 
     public void setIsDay(boolean isDay) {
         this.isDay = isDay;
@@ -122,5 +116,34 @@ public class Game {
 
     public int getNightTimeLimit() {
         return 30; // 기본값 30초
+    }
+
+    /**
+     * 플레이어 목록 변경 시 캐시를 갱신합니다.
+     * 게임 생성 후 호출하여 O(1) 검색을 가능하게 합니다.
+     */
+    public void buildPlayerMap() {
+        if (playerMap == null) {
+            playerMap = new HashMap<>();
+        }
+        playerMap.clear();
+        if (players != null) {
+            for (GamePlayer player : players) {
+                String playerId = player.getPlayerId();
+                if (playerId != null) {
+                    playerMap.put(playerId, player);
+                }
+            }
+        }
+    }
+
+    /**
+     * O(1) 시간 복잡도로 플레이어를 검색합니다.
+     */
+    public GamePlayer getPlayerById(String playerId) {
+        if (playerMap == null || playerMap.isEmpty()) {
+            buildPlayerMap();
+        }
+        return playerMap.get(playerId);
     }
 }
