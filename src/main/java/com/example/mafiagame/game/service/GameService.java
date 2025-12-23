@@ -20,6 +20,7 @@ public class GameService {
 
     private final Map<String, Game> games = new ConcurrentHashMap<>();
     private final SimpMessagingTemplate messagingTemplate;
+    private final TimerService timerService;
 
     public Game createGame(String roomId, List<GamePlayer> playerList) {
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
@@ -30,6 +31,7 @@ public class GameService {
                 .players(playerList)
                 .build();
         playerList.forEach(player -> player.setGame(game));
+        game.buildPlayerMap();
         games.put(gameId, game);
         // log.info("게임 생성됨: {}", gameId);
         return game;
@@ -89,6 +91,8 @@ public class GameService {
         game.setStatus(GameStatus.IN_PROGRESS);
         game.setStartTime(LocalDateTime.now());
         toNextDayPhase(game);
+        // 타이머 시작
+        timerService.startTimer(gameId);
         // log.info("게임 시작됨: {} (낮 대화: {}초)", gameId, game.getRemainingTime());
     }
 
@@ -99,6 +103,8 @@ public class GameService {
         game.setStatus(GameStatus.ENDED);
         game.setWinner(winner);
         game.setEndTime(LocalDateTime.now());
+        // 타이머 중지
+        timerService.stopTimer(gameId);
         messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(),
                 Map.of("type", "GAME_ENDED", "winner", winner, "players", game.getPlayers()));
         // log.info("게임 종료: {} - 승리자: {}", gameId, winner);
@@ -308,7 +314,7 @@ public class GameService {
     }
 
     private GamePlayer findPlayerById(Game game, String playerId) {
-        return game.getPlayers().stream().filter(p -> p.getPlayerId().equals(playerId)).findFirst().orElse(null);
+        return game.getPlayerById(playerId);
     }
 
     private GamePlayer findActivePlayerById(Game game, String playerId) {
