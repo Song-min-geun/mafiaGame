@@ -59,7 +59,6 @@ public class SecurityConfig {
                                                                                                           // 허용 (또는
                                                                                                           // .disable());
 
-        // 직접 만든 JwtRequestFilter를 UsernamePasswordAuthenticationFilter 앞에 추가
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
