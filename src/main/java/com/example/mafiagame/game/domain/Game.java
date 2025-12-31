@@ -1,5 +1,6 @@
 package com.example.mafiagame.game.domain;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,10 +43,6 @@ public class Game {
     @Column(name = "current_phase", nullable = false)
     @Builder.Default
     private int currentPhase = 0;
-
-    @Column(name = "is_day", nullable = false)
-    @Builder.Default
-    private boolean isDay = true;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "game_phase", nullable = false)
@@ -100,7 +97,9 @@ public class Game {
     @Builder.Default
     private Map<String, Boolean> votingTimeExtensionsUsed = new HashMap<>();
 
-    // 플레이어 ID → GamePlayer 캐시 (O(1) 검색용)
+    @Transient
+    private Instant phaseEndTime;
+
     @Transient
     @JsonIgnore
     @Builder.Default
@@ -118,10 +117,6 @@ public class Game {
         return 30; // 기본값 30초
     }
 
-    /**
-     * 플레이어 목록 변경 시 캐시를 갱신합니다.
-     * 게임 생성 후 호출하여 O(1) 검색을 가능하게 합니다.
-     */
     public void buildPlayerMap() {
         if (playerMap == null) {
             playerMap = new HashMap<>();
@@ -137,9 +132,6 @@ public class Game {
         }
     }
 
-    /**
-     * O(1) 시간 복잡도로 플레이어를 검색합니다.
-     */
     public GamePlayer getPlayerById(String playerId) {
         if (playerMap == null || playerMap.isEmpty()) {
             buildPlayerMap();

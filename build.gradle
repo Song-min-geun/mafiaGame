@@ -85,7 +85,7 @@ bootRun {
         '-Xms2g',
         '-XX:+UseZGC',
         '-XX:+ZGenerational',
-        // '-Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=5,filesize=10m', # gc.log 파일 생성
+        // '-Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=5,filesize=10m', // gc.log 파일 생성
         '-XX:+HeapDumpOnOutOfMemoryError'
     ]
 }
