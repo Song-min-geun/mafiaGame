@@ -5,7 +5,6 @@ import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
-import com.example.mafiagame.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,9 +23,6 @@ class MafiagameApplicationTests {
 
     @Autowired
     private GameService gameService;
-
-    @Autowired
-    private UserRepository userRepository; // 더미 유저 생성을 위해 필요
 
     @Test
     @DisplayName("동시성 이슈 재현: 100명이 동시에 투표하면 투표가 누락된다.")
