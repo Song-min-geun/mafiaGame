@@ -32,7 +32,7 @@ public class Game {
     private String roomId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "status", nullable = false, length = 20)
     private GameStatus status;
 
     @Column(name = "winner")

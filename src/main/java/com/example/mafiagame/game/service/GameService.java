@@ -1,7 +1,7 @@
 package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.*;
-
+import com.example.mafiagame.user.repository.UserRepository;
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +23,7 @@ public class GameService {
 
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
+    private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     @Lazy
     private final TimerService timerService;
@@ -62,7 +63,7 @@ public class GameService {
                 .status(GameStatus.IN_PROGRESS)
                 .gamePhase(GamePhase.DAY_DISCUSSION)
                 .currentPhase(1)
-                .players(new ArrayList<>(playerList)) // 복사해서 저장
+                .players(new ArrayList<>(playerList))
                 .build();
         gameStateRepository.save(gameState);
 
@@ -124,13 +125,32 @@ public class GameService {
         if (gameState == null)
             return; // 이미 종료된 게임일 수 있음
 
-        // 2. MySQL 업데이트 (종료 시간, 승자)
+        // 2. MySQL 업데이트 (종료 시간, 승자, 전적)
         gameRepository.findById(gameId).ifPresent(game -> {
             game.setStatus(GameStatus.ENDED);
             game.setWinner(winner);
             game.setEndTime(LocalDateTime.now());
             gameRepository.save(game);
         });
+
+        // 사용자 전적 업데이트
+        boolean isCitizenWin = "CITIZEN".equals(winner);
+        for (GamePlayer gp : gameState.getPlayers()) {
+            if (gp.getUser() == null || gp.getUser().getUserId() == null)
+                continue;
+
+            userRepository.findById(gp.getUser().getUserId()).ifPresent(user -> {
+                user.incrementPlayCount();
+                boolean isMafia = (gp.getRole() == PlayerRole.MAFIA);
+
+                // 승리 조건: 시민팀 승리 & 본인이 시민(또는 의사/경찰) OR 마피아팀 승리 & 본인이 마피아
+                // Role이 MAFIA면 마피아팀, 그 외(CITIZEN, DOCTOR, POLICE)는 시민 팀
+                if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
+                    user.incrementWinCount();
+                }
+                userRepository.save(user);
+            });
+        }
 
         // 3. 타이머 중지
         timerService.stopTimer(gameId);
