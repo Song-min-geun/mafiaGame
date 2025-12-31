@@ -787,26 +787,21 @@ function subscribeToRoom(roomId) {
                 timeExtensionUsed = false;
 
                 // 페이즈 전환 메시지 처리
-                if (chatMessage.gameId === currentGameId) {
-                    currentGame.gamePhase = chatMessage.gamePhase;
-                    currentGame.currentPhase = chatMessage.currentPhase;
-                    currentGame.isDay = chatMessage.isDay;
-                    currentGame.remainingTime = chatMessage.remainingTime;
+                // 서버에서 { type: "PHASE_SWITCHED", game: { ... } } 형태로 보냄
+                const gameData = chatMessage.game;
 
-                    // 플레이어 데이터 업데이트 (중요!)
-                    if (chatMessage.players) {
-                        currentGame.players = chatMessage.players;
-                    }
+                if (gameData && gameData.gameId === currentGameId) {
+                    currentGame = gameData; // 게임 상태 전체 갱신 (phaseEndTime 포함)
 
                     // 게임 UI 업데이트
                     updateGameUI(currentGame);
-                    updateTimerDisplay(currentGame);
+                    updateTimerDisplay(currentGame); // 타이머 재시작
 
                     // 투표 페이즈인 경우 추가 로그
-                    if (chatMessage.gamePhase === 'DAY_VOTING' || chatMessage.gamePhase === 'DAY_FINAL_VOTE') {
+                    if (currentGame.gamePhase === 'DAY_VOTING' || currentGame.gamePhase === 'DAY_FINAL_VOTE') {
 
                         // 투표 페이즈로 전환 시 시간 연장 기회 초기화 및 버튼 활성화
-                        if (chatMessage.gamePhase === 'DAY_VOTING') {
+                        if (currentGame.gamePhase === 'DAY_VOTING') {
                             timeExtensionUsed = false;
                             // 시간 연장/단축 버튼 활성화
                             const extendBtn = document.getElementById('extendTimeBtn');
@@ -816,7 +811,7 @@ function subscribeToRoom(roomId) {
                         }
 
                         // 낮 대화 페이즈로 전환 시 시간 연장 기회 초기화
-                        if (chatMessage.gamePhase === 'DAY_DISCUSSION') {
+                        if (currentGame.gamePhase === 'DAY_DISCUSSION') {
                             timeExtensionUsed = false;
                             // 시간 연장/단축 버튼 활성화
                             const extendBtn = document.getElementById('extendTimeBtn');
@@ -1124,15 +1119,38 @@ function updateTimerDisplay(game) {
         }
         timerLabel.textContent = phaseText;
 
-        // 남은 시간 표시
-        const remainingTime = game.remainingTime || 0;
-        timerCountdown.textContent = remainingTime;
+        // 남은 시간 표시 (자동 카운트다운)
+        if (timerInterval) {
+            clearInterval(timerInterval);
+        }
 
-        // 경고 상태 (10초 이하)
-        if (remainingTime <= 10) {
-            timerCountdown.classList.add('warning');
+        const endTimeStr = game.phaseEndTime;
+        if (!endTimeStr) {
+            timerCountdown.textContent = "-";
         } else {
-            timerCountdown.classList.remove('warning');
+            const endTime = new Date(endTimeStr).getTime();
+
+            function updateRemaining() {
+                const now = Date.now();
+                const diff = endTime - now;
+                const seconds = Math.ceil(diff / 1000);
+
+                if (seconds >= 0) {
+                    timerCountdown.textContent = seconds;
+                    // 경고 상태 (10초 이하)
+                    if (seconds <= 10) {
+                        timerCountdown.classList.add('warning');
+                    } else {
+                        timerCountdown.classList.remove('warning');
+                    }
+                } else {
+                    timerCountdown.textContent = "0";
+                    clearInterval(timerInterval);
+                }
+            }
+
+            updateRemaining(); // 즉시 1회 실행
+            timerInterval = setInterval(updateRemaining, 1000); // 1초마다 반복
         }
 
         // 시간 연장/단축 버튼 제어 (모든 사용자 가능)
@@ -1141,8 +1159,11 @@ function updateTimerDisplay(game) {
         });
 
         // 투표 페이즈거나 낮 대화 페이즈일 때만 시간 조절 가능
+        // 현재 남은 시간을 다시 계산하거나, 위에서 계산된 값을 쓰기 위해 scope 주의
+        // 간단히는 현재 시점 기준으로 다시 계산
+        const currentRemaining = game.phaseEndTime ? Math.ceil((new Date(game.phaseEndTime).getTime() - Date.now()) / 1000) : 0;
         const isTimeControllablePhase = game.gamePhase === 'DAY_DISCUSSION' || game.gamePhase === 'DAY_VOTING';
-        const canExtend = isTimeControllablePhase && !timeExtensionUsed && remainingTime > 0;
+        const canExtend = isTimeControllablePhase && !timeExtensionUsed && currentRemaining > 0;
 
         extendButtons.forEach(button => {
             button.disabled = !canExtend;

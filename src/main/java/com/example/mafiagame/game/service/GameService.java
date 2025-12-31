@@ -118,7 +118,7 @@ public class GameService {
         switch (game.getGamePhase()) {
             case DAY_DISCUSSION -> toPhase(game, GamePhase.DAY_VOTING, 60);
             case DAY_VOTING -> processDayVoting(game);
-            case DAY_FINAL_DEFENSE -> toPhase(game, GamePhase.DAY_FINAL_VOTING, 60);
+            case DAY_FINAL_DEFENSE -> toPhase(game, GamePhase.DAY_FINAL_VOTING, 15);
             case DAY_FINAL_VOTING -> processFinalVoting(game);
             case NIGHT_ACTION -> processNight(game);
         }
@@ -203,11 +203,14 @@ public class GameService {
                 .filter(action -> Optional.ofNullable(findPlayerById(game, action.getActorId()))
                         .map(GamePlayer::getRole).orElse(null) == PlayerRole.MAFIA)
                 .collect(Collectors.groupingBy(NightAction::getTargetId, Collectors.counting()));
+
         String mafiaTargetId = getTopVotedPlayers(mafiaVotes).stream().findFirst().orElse(null);
+
         String doctorTargetId = game.getNightActions().stream()
                 .filter(action -> Optional.ofNullable(findPlayerById(game, action.getActorId()))
                         .map(GamePlayer::getRole).orElse(null) == PlayerRole.DOCTOR)
                 .map(NightAction::getTargetId).findFirst().orElse(null);
+
         if (mafiaTargetId != null && !mafiaTargetId.equals(doctorTargetId)) {
             Optional.ofNullable(findPlayerById(game, mafiaTargetId)).ifPresent(killed -> {
                 killed.setAlive(false);
@@ -234,9 +237,15 @@ public class GameService {
         return false;
     }
 
-    private void toPhase(Game game, GamePhase phase, int time) {
+    private void toPhase(Game game, GamePhase phase, int durationSeconds) {
         game.setGamePhase(phase);
-        game.setRemainingTime(time);
+
+        // [REFACTORED] 절대 시간 계산
+        java.time.Instant endTime = java.time.Instant.now().plusSeconds(durationSeconds);
+        game.setPhaseEndTime(endTime);
+
+        // 기존 remainingTime 필드는 삭제 예정이나, 호환성을 위해 0으로 설정하거나 무시
+        game.setRemainingTime(durationSeconds);
     }
 
     private void toNightPhase(Game game) {
@@ -324,9 +333,15 @@ public class GameService {
 
     public void sendTimerUpdate(Game game) {
         messagingTemplate.convertAndSend("/topic/room." + game.getRoomId(),
-                Map.of("type", "TIMER_UPDATE", "gameId", game.getGameId(), "remainingTime", game.getRemainingTime(),
-                        "gamePhase", game.getGamePhase(), "currentPhase", game.getCurrentPhase(), "isDay",
-                        game.isDay()));
+                Map.of("type", "TIMER_UPDATE",
+                        "gameId", game.getGameId(),
+                        "phaseEndTime", game.getPhaseEndTime() != null ? game.getPhaseEndTime().toString() : "", // 절대
+                                                                                                                 // 시간
+                                                                                                                 // 전송
+                        "remainingTime", game.getRemainingTime(), // 호환성 유지
+                        "gamePhase", game.getGamePhase(),
+                        "currentPhase", game.getCurrentPhase(),
+                        "isDay", game.isDay()));
     }
 
     private void sendSystemMessage(String roomId, String content) {
