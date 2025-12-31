@@ -5,7 +5,7 @@ import com.example.mafiagame.chat.dto.ChatMessage;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GamePlayer;
-import com.example.mafiagame.game.domain.GameStatus;
+import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.service.UserService;
@@ -61,11 +61,6 @@ public class ChatRoomService {
         User sender = userService.getUserByLoginId(senderId);
         chatMessage.setSenderId(sender.getUserLoginId());
         chatMessage.setSenderName(sender.getNickname());
-
-        // recipientId는 로그인 아이디(Principal 이름)여야 함
-        // log.info("개인 메시지 전송 시도: senderId={}, recipientId={},
-        // destination=/user/{}/queue/private",
-        // senderId, recipientId, recipientId);
 
         // 사용자 등록 상태 확인
         SimpUserRegistry userRegistry = getSimpUserRegistry();
@@ -201,7 +196,7 @@ public class ChatRoomService {
         }
 
         // 2. 실시간 상태 조회 (Redis)
-        com.example.mafiagame.game.domain.GameState gameState = gameService.getGameState(game.getGameId());
+        GameState gameState = gameService.getGameState(game.getGameId());
         if (gameState == null) {
             return true; // Redis에 상태가 없으면(예외 상황) 채팅 허용
         }

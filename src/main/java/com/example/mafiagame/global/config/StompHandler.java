@@ -18,7 +18,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.messaging.simp.user.SimpUser;
-import org.springframework.messaging.simp.user.SimpSession;
 import org.springframework.context.ApplicationContext;
 
 import java.util.Map;
