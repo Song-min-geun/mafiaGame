@@ -44,20 +44,8 @@ public class Game {
     @Column(name = "end_time")
     private LocalDateTime endTime;
 
-    @Column(name = "max_players", nullable = false)
-    private int maxPlayers;
-
     @Builder.Default
     @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<GamePlayer> players = new ArrayList<>();
-
-    // playerMap 등 런타임용 편의 메서드 삭제됨 -> GameState에서 처리
-    public int getDayTimeLimit() {
-        return 60; // 기본값 60초
-    }
-
-    public int getNightTimeLimit() {
-        return 30; // 기본값 30초
-    }
 }

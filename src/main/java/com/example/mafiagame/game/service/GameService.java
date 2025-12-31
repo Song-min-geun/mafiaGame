@@ -38,7 +38,6 @@ public class GameService {
                 .gameId(gameId)
                 .roomId(roomId)
                 .status(GameStatus.IN_PROGRESS)
-                .maxPlayers(playerList.size())
                 .startTime(LocalDateTime.now())
                 .build();
 
@@ -47,7 +46,7 @@ public class GameService {
             GamePlayer newP = GamePlayer.builder()
                     .user(p.getUser())
                     .isHost(p.isHost())
-                    .role(p.getRole()) // Role might be null here, assigned later
+                    .role(p.getRole())
                     .isAlive(true)
                     .build();
             newP.setGame(game);
@@ -55,10 +54,8 @@ public class GameService {
         }).collect(Collectors.toList());
 
         game.setPlayers(dbPlayers);
-        gameRepository.save(game); // 영구 저장
+        gameRepository.save(game);
 
-        // 2. Redis: 실시간 게임 상태 생성
-        // 주의: GamePlayer 객체를 Redis에 그대로 저장 (Serializable/Jackson)
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId(roomId)
