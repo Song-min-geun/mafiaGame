@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.mafiagame.global.dto.CommonResponse;
-import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
@@ -34,7 +33,6 @@ import lombok.RequiredArgsConstructor;
 public class UserController {
 
     private final UserService userService;
-    private final JwtUtil jwtUtil;
     private final RedisService redisService;
 
     @PostMapping("/register")
