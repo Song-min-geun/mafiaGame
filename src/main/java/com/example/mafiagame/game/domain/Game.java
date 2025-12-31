@@ -1,11 +1,8 @@
 package com.example.mafiagame.game.domain;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -14,11 +11,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import lombok.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "games")
@@ -57,44 +52,12 @@ public class Game {
     @JsonManagedReference
     private List<GamePlayer> players = new ArrayList<>();
 
-    // --- 삭제된 필드들 (GameState로 이동됨) ---
-    // isDay, currentPhase, gamePhase, votes, finalVotes, nightActions,
-    // votedPlayerId, votingTimeExtensionsUsed, remainingTime, phaseEndTime
-    // 모두 삭제됨
-
-    // playerMap은 편의상 유지
-    @Transient
-    @JsonIgnore
-    @Builder.Default
-    private Map<String, GamePlayer> playerMap = new HashMap<>();
-
+    // playerMap 등 런타임용 편의 메서드 삭제됨 -> GameState에서 처리
     public int getDayTimeLimit() {
         return 60; // 기본값 60초
     }
 
     public int getNightTimeLimit() {
         return 30; // 기본값 30초
-    }
-
-    public void buildPlayerMap() {
-        if (playerMap == null) {
-            playerMap = new HashMap<>();
-        }
-        playerMap.clear();
-        if (players != null) {
-            for (GamePlayer player : players) {
-                String playerId = player.getPlayerId();
-                if (playerId != null) {
-                    playerMap.put(playerId, player);
-                }
-            }
-        }
-    }
-
-    public GamePlayer getPlayerById(String playerId) {
-        if (playerMap == null || playerMap.isEmpty()) {
-            buildPlayerMap();
-        }
-        return playerMap.get(playerId);
     }
 }
