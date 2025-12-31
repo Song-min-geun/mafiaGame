@@ -2,6 +2,7 @@ package com.example.mafiagame;
 
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.repository.UserRepository;
@@ -69,8 +70,8 @@ class MafiagameApplicationTests {
         latch.await(); // 모든 스레드가 끝날 때까지 대기
 
         // 4. 결과 검증 (기대값: 100, 실제값: 84)
-        Game findGame = gameService.getGame(gameId);
-        int totalVotes = findGame.getVotes().size();
+        GameState findGameState = gameService.getGameState(gameId);
+        int totalVotes = findGameState.getVotes().size();
 
         System.out.println("==================================================");
         System.out.println("기대 투표 수: " + threadCount);
