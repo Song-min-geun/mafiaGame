@@ -37,8 +37,24 @@ public class User {
     @Column(nullable = false)
     private UserRole userRole;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private int winCount = 0;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int playCount = 0;
+
     public void updateUserLoginPassword(String userLoginPassword) {
         this.userLoginPassword = userLoginPassword;
+    }
+
+    public void incrementWinCount() {
+        this.winCount++;
+    }
+
+    public void incrementPlayCount() {
+        this.playCount++;
     }
 
 }
