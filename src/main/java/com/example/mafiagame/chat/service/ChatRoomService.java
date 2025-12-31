@@ -194,12 +194,20 @@ public class ChatRoomService {
     }
 
     private boolean canPlayerChat(String roomId, String playerId) {
+        // 1. 진행 중인 게임 확인 (DB에서 gameId 조회)
         Game game = gameService.getGameByRoomId(roomId);
-        if (game == null || game.getStatus() != GameStatus.IN_PROGRESS) {
-            return true; // 게임이 없거나 진행 중이 아니면 항상 채팅 가능
+        if (game == null) {
+            return true; // 게임이 없으면 채팅 가능 (대기방 등)
         }
 
-        GamePlayer player = game.getPlayers().stream()
+        // 2. 실시간 상태 조회 (Redis)
+        com.example.mafiagame.game.domain.GameState gameState = gameService.getGameState(game.getGameId());
+        if (gameState == null) {
+            return true; // Redis에 상태가 없으면(예외 상황) 채팅 허용
+        }
+
+        // 3. 플레이어 상태 확인
+        GamePlayer player = gameState.getPlayers().stream()
                 .filter(p -> p.getPlayerId().equals(playerId))
                 .findFirst().orElse(null);
 
@@ -207,8 +215,9 @@ public class ChatRoomService {
             return false; // 죽은 플레이어는 채팅 불가
         }
 
-        if (game.getGamePhase() == GamePhase.DAY_FINAL_DEFENSE) {
-            return playerId.equals(game.getVotedPlayerId());
+        // 4. 최후 변론 단계 확인
+        if (gameState.getGamePhase() == GamePhase.DAY_FINAL_DEFENSE) {
+            return playerId.equals(gameState.getVotedPlayerId());
         }
 
         return true;

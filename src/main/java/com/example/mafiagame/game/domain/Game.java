@@ -40,15 +40,6 @@ public class Game {
     @Column(name = "status", nullable = false)
     private GameStatus status;
 
-    @Column(name = "current_phase", nullable = false)
-    @Builder.Default
-    private int currentPhase = 0;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "game_phase", nullable = false)
-    @Builder.Default
-    private GamePhase gamePhase = GamePhase.DAY_DISCUSSION;
-
     @Column(name = "winner")
     private String winner;
 
@@ -66,48 +57,16 @@ public class Game {
     @JsonManagedReference
     private List<GamePlayer> players = new ArrayList<>();
 
-    @Builder.Default
-    @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonManagedReference
-    private List<Vote> votes = new ArrayList<>();
+    // --- 삭제된 필드들 (GameState로 이동됨) ---
+    // isDay, currentPhase, gamePhase, votes, finalVotes, nightActions,
+    // votedPlayerId, votingTimeExtensionsUsed, remainingTime, phaseEndTime
+    // 모두 삭제됨
 
-    @Builder.Default
-    @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonManagedReference
-    private List<NightAction> nightActions = new ArrayList<>();
-
-    @Builder.Default
-    @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonManagedReference
-    private List<FinalVote> finalVotes = new ArrayList<>();
-
-    // 타이머 관련 필드들
-    @Transient
-    @Builder.Default
-    private int remainingTime = 60;
-
-    private String votedPlayerId;
-
-    // 시간 연장 관련 필드들
-    @Transient
-    @Builder.Default
-    private Map<String, Boolean> timeExtensionsUsed = new HashMap<>();
-
-    @Transient
-    @Builder.Default
-    private Map<String, Boolean> votingTimeExtensionsUsed = new HashMap<>();
-
-    @Transient
-    private Instant phaseEndTime;
-
+    // playerMap은 편의상 유지
     @Transient
     @JsonIgnore
     @Builder.Default
     private Map<String, GamePlayer> playerMap = new HashMap<>();
-
-    public void setIsDay(boolean isDay) {
-        this.isDay = isDay;
-    }
 
     public int getDayTimeLimit() {
         return 60; // 기본값 60초
