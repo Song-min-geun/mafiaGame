@@ -1,10 +1,13 @@
 package com.example.mafiagame;
 
 import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.UserRole;
+import com.example.mafiagame.user.repository.UserRepository;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -24,24 +28,33 @@ class MafiagameApplicationTests {
     @Autowired
     private GameService gameService;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Test
     @DisplayName("동시성 이슈 재현: 100명이 동시에 투표하면 투표가 누락된다.")
     void concurrencyVoteTest() throws InterruptedException {
         // 1. 게임 방 생성 및 유저 준비
         String roomId = "test-room";
-        List<GamePlayer> players = new ArrayList<>();
 
-        // 투표할 유저 100명 생성 (테스트용)
+        List<CreateGameRequest.PlayerData> players = new ArrayList<>();
         int threadCount = 100;
+
         for (int i = 0; i < threadCount; i++) {
-            // 실제 DB에 없어도 GamePlayer 객체만 있으면 됨
-            User user = User.builder().userLoginId("user" + i).nickname("player" + i).build();
-            GamePlayer player = GamePlayer.builder().user(user).isAlive(true).build();
-            players.add(player);
+            String loginId = "user" + i;
+            User user = User.builder()
+                    .userLoginId(loginId)
+                    .nickname("player" + i)
+                    .userLoginPassword("pw")
+                    .userRole(UserRole.USER)
+                    .build();
+            userRepository.save(user);
+
+            players.add(new CreateGameRequest.PlayerData(loginId, "player" + i));
         }
 
-        // 게임 생성 및 시작
-        Game game = gameService.createGame(roomId, players);
+        CreateGameRequest request = new CreateGameRequest(roomId, players);
+        Game game = gameService.createGame(request);
         String gameId = game.getGameId();
         gameService.startGame(gameId); // DAY_DISCUSSION
         gameService.advancePhase(gameId); // DAY_VOTING (투표 가능 상태로 변경)

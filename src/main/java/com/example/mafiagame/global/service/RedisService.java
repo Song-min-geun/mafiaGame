@@ -203,7 +203,10 @@ public class RedisService {
      * 모든 데이터 삭제 (개발용)
      */
     public void flushAll() {
-        redisTemplate.getConnectionFactory().getConnection().flushAll();
-        log.warn("Redis 모든 데이터 삭제됨");
+        var connectionFactory = redisTemplate.getConnectionFactory();
+        if (connectionFactory != null) {
+            connectionFactory.getConnection().serverCommands().flushAll();
+            log.warn("Redis 모든 데이터 삭제됨");
+        }
     }
 }

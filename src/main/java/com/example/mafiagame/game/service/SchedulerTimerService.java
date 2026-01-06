@@ -45,7 +45,7 @@ public class SchedulerTimerService implements TimerService {
         }
 
         // 3. 실행 시간 계산
-        Instant executionTime = gameState.getPhaseEndTime();
+        Instant executionTime = Instant.ofEpochMilli(gameState.getPhaseEndTime());
 
         // 4. 스케줄링
         ScheduledFuture<?> future = taskScheduler.schedule(() -> {

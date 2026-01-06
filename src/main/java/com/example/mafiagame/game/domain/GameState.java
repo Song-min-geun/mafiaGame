@@ -1,6 +1,5 @@
 package com.example.mafiagame.game.domain;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +19,7 @@ import lombok.Setter;
 public class GameState {
 
     private String gameId;
+
     private String roomId;
 
     @Builder.Default
@@ -31,12 +31,12 @@ public class GameState {
     @Builder.Default
     private int currentPhase = 1;
 
-    private Instant phaseEndTime;
+    private Long phaseEndTime;
 
     private String winner;
 
     @Builder.Default
-    private List<GamePlayer> players = new ArrayList<>();
+    private List<GamePlayerState> players = new ArrayList<>();
 
     @Builder.Default
     private List<Vote> votes = new ArrayList<>();

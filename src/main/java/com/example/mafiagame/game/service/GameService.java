@@ -1,6 +1,8 @@
 package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.*;
+import com.example.mafiagame.game.dto.request.CreateGameRequest;
+import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.repository.UserRepository;
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
@@ -31,7 +33,10 @@ public class GameService {
     // --- Game Logic (Persistence + Redis) ---
 
     @Transactional
-    public Game createGame(String roomId, List<GamePlayer> playerList) {
+    public Game createGame(CreateGameRequest request) {
+        String roomId = request.roomId();
+        List<CreateGameRequest.PlayerData> playersData = request.players();
+
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
 
         // 1. MySQL: 이력 저장용 Entity 생성 (기본 정보만)
@@ -42,16 +47,16 @@ public class GameService {
                 .startTime(LocalDateTime.now())
                 .build();
 
-        // Players mapping for DB (Historical record)
-        List<GamePlayer> dbPlayers = playerList.stream().map(p -> {
-            GamePlayer newP = GamePlayer.builder()
-                    .user(p.getUser())
-                    .isHost(p.isHost())
-                    .role(p.getRole())
+        List<GamePlayer> dbPlayers = playersData.stream().map(pData -> {
+            String playerId = pData.playerId();
+            User user = userRepository.findByUserLoginId(playerId)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + playerId));
+
+            return GamePlayer.builder()
+                    .game(game)
+                    .user(user)
                     .isAlive(true)
                     .build();
-            newP.setGame(game);
-            return newP;
         }).collect(Collectors.toList());
 
         game.setPlayers(dbPlayers);
@@ -62,12 +67,25 @@ public class GameService {
                 .roomId(roomId)
                 .status(GameStatus.IN_PROGRESS)
                 .gamePhase(GamePhase.DAY_DISCUSSION)
-                .currentPhase(1)
-                .players(new ArrayList<>(playerList))
+                .currentPhase(0)
+                .players(playersData.stream().map(pData -> {
+                    String playerId = pData.playerId();
+                    User user = userRepository.findByUserLoginId(playerId).orElseThrow();
+
+                    return GamePlayerState.builder()
+                            .playerId(user.getUserLoginId())
+                            .playerName(user.getNickname())
+                            .isAlive(true)
+                            .voteCount(0)
+                            .team(null)
+                            .targetPlayerId(null)
+                            .build();
+                })
+                        .collect(Collectors.toList()))
                 .build();
         gameStateRepository.save(gameState);
 
-        // log.info("게임 생성됨: {}", gameId);
+        log.info("게임 생성됨: {}", gameId);
         return game;
     }
 
@@ -77,26 +95,41 @@ public class GameService {
         if (gameState == null)
             return;
 
-        List<GamePlayer> players = gameState.getPlayers();
+        List<GamePlayerState> players = gameState.getPlayers();
         int playerCount = players.size();
         int mafiaCount = Math.max(1, playerCount / 4);
         List<PlayerRole> roles = new ArrayList<>();
 
-        for (int i = 0; i < mafiaCount; i++)
+        for (int i = 0; i < mafiaCount; i++) {
             roles.add(PlayerRole.MAFIA);
+        }
         roles.add(PlayerRole.DOCTOR);
         roles.add(PlayerRole.POLICE);
-        while (roles.size() < playerCount)
+        while (roles.size() < playerCount) {
             roles.add(PlayerRole.CITIZEN);
+        }
         Collections.shuffle(roles);
 
         for (int i = 0; i < playerCount; i++) {
-            GamePlayer player = players.get(i);
+            GamePlayerState player = players.get(i);
             PlayerRole assignedRole = roles.get(i);
             player.setRole(assignedRole);
 
             // 개인 메시지 전송
             sendRoleAssignmentMessage(player.getPlayerId(), assignedRole);
+        }
+
+        for (int i = 0; i < playerCount; i++) {
+            GamePlayerState player = players.get(i);
+
+            if (player.getRole() == PlayerRole.MAFIA) {
+                player.setTeam(Team.MAFIA);
+            } else if (player.getRole() == PlayerRole.DOCTOR || player.getRole() == PlayerRole.POLICE
+                    || player.getRole() == PlayerRole.CITIZEN) {
+                player.setTeam(Team.CITIZEN);
+            } else {
+                player.setTeam(Team.NEUTRALITY);
+            }
         }
 
         // 변경된 역할 정보 Redis 저장
@@ -128,20 +161,19 @@ public class GameService {
         // 2. MySQL 업데이트 (종료 시간, 승자, 전적)
         gameRepository.findById(gameId).ifPresent(game -> {
             game.setStatus(GameStatus.ENDED);
-            game.setWinner(winner);
             game.setEndTime(LocalDateTime.now());
             gameRepository.save(game);
         });
 
         // 사용자 전적 업데이트
         boolean isCitizenWin = "CITIZEN".equals(winner);
-        for (GamePlayer gp : gameState.getPlayers()) {
-            if (gp.getUser() == null || gp.getUser().getUserId() == null)
+        for (GamePlayerState gp : gameState.getPlayers()) {
+            if (gp.getPlayerId() == null)
                 continue;
 
-            userRepository.findById(gp.getUser().getUserId()).ifPresent(user -> {
+            userRepository.findByUserLoginId(gp.getPlayerId()).ifPresent(user -> {
                 user.incrementPlayCount();
-                boolean isMafia = (gp.getRole() == PlayerRole.MAFIA);
+                boolean isMafia = (gp.getTeam() == Team.MAFIA);
 
                 // 승리 조건: 시민팀 승리 & 본인이 시민(또는 의사/경찰) OR 마피아팀 승리 & 본인이 마피아
                 // Role이 MAFIA면 마피아팀, 그 외(CITIZEN, DOCTOR, POLICE)는 시민 팀
@@ -163,24 +195,51 @@ public class GameService {
         gameStateRepository.delete(gameId);
     }
 
-    // --- Runtime Logic (Operates on GameState) ---
-
     public void advancePhase(String gameId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
             return;
 
         switch (gameState.getGamePhase()) {
-            case DAY_DISCUSSION -> toPhase(gameState, GamePhase.DAY_VOTING, 60);
+            case DAY_DISCUSSION -> toPhase(gameState, GamePhase.DAY_VOTING, 30);
             case DAY_VOTING -> processDayVoting(gameState);
             case DAY_FINAL_DEFENSE -> toPhase(gameState, GamePhase.DAY_FINAL_VOTING, 15);
             case DAY_FINAL_VOTING -> processFinalVoting(gameState);
             case NIGHT_ACTION -> processNight(gameState);
         }
 
+        // 게임이 종료되었으면(상태가 IN_PROGRESS가 아니면) 저장/스케줄링 하지 않고 리턴
+        if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+            return;
+        }
+
         // 상태 변경 후 저장 및 알림
         gameStateRepository.save(gameState);
         sendPhaseSwitchMessage(gameState);
+
+        // 다음 페이즈 타이머 시작
+        timerService.startTimer(gameId);
+    }
+
+    // ... (vote, finalVote etc methods omitted) ...
+
+    private boolean checkGameEnd(GameState gameState) {
+        long mafia = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
+                .count();
+        long citizen = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA)
+                .count();
+
+        if (mafia >= citizen) {
+            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
+            endGame(gameState.getGameId(), "MAFIA");
+            return true;
+        }
+        if (mafia == 0) {
+            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
+            endGame(gameState.getGameId(), "CITIZEN");
+            return true;
+        }
+        return false;
     }
 
     public void vote(String gameId, String voterId, String targetId) {
@@ -217,7 +276,7 @@ public class GameService {
         if (gameState == null || gameState.getGamePhase() != GamePhase.NIGHT_ACTION)
             return;
 
-        GamePlayer actor = findActivePlayerById(gameState, actorId);
+        GamePlayerState actor = findActivePlayerById(gameState, actorId);
         if (actor == null || actor.getRole() == PlayerRole.CITIZEN)
             return;
 
@@ -226,7 +285,7 @@ public class GameService {
 
         // 경찰은 즉시 결과 확인
         if (actor.getRole() == PlayerRole.POLICE) {
-            GamePlayer target = findPlayerById(gameState, targetId);
+            GamePlayerState target = findPlayerById(gameState, targetId);
             if (target != null)
                 sendPoliceInvestigationResult(actor, target);
         }
@@ -245,7 +304,7 @@ public class GameService {
 
         // 시간 조절: PhaseEndTime을 앞당기거나 뒤로 미룸
         if (gameState.getPhaseEndTime() != null) {
-            gameState.setPhaseEndTime(gameState.getPhaseEndTime().plusSeconds(seconds));
+            gameState.setPhaseEndTime(gameState.getPhaseEndTime() + (seconds * 1000L));
         }
 
         gameStateRepository.save(gameState);
@@ -253,7 +312,10 @@ public class GameService {
         // 변경된 시간 브로드캐스트
         sendTimerUpdate(gameState);
 
-        GamePlayer player = findPlayerById(gameState, playerId);
+        // 타이머 재설정 (기존 타이머 취소 후 새 시간으로 예약)
+        timerService.startTimer(gameId);
+
+        GamePlayerState player = findPlayerById(gameState, playerId);
         if (player != null) {
             sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
                     player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
@@ -265,7 +327,7 @@ public class GameService {
 
     private void toPhase(GameState gameState, GamePhase phase, int durationSeconds) {
         gameState.setGamePhase(phase);
-        gameState.setPhaseEndTime(java.time.Instant.now().plusSeconds(durationSeconds));
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (durationSeconds * 1000L));
         // 저장 로직은 호출자가 수행 (batch save)
     }
 
@@ -277,7 +339,7 @@ public class GameService {
     }
 
     private void toNightPhase(GameState gameState) {
-        toPhase(gameState, GamePhase.NIGHT_ACTION, 15);
+        toPhase(gameState, GamePhase.NIGHT_ACTION, 30); // 밤 30초
         gameState.getVotes().clear();
         gameState.getFinalVotes().clear();
         gameState.setVotedPlayerId(null);
@@ -292,7 +354,7 @@ public class GameService {
         } else {
             String votedId = topVotedIds.get(0);
             gameState.setVotedPlayerId(votedId);
-            toPhase(gameState, GamePhase.DAY_FINAL_DEFENSE, 60);
+            toPhase(gameState, GamePhase.DAY_FINAL_DEFENSE, 20); // 최후 변론 45초
 
             findPlayerById(gameState, votedId, player -> sendSystemMessage(gameState.getRoomId(),
                     String.format("투표 결과 %s님이 최다 득표자가 되었습니다. 최후 변론을 시작합니다.", player.getPlayerName())));
@@ -327,7 +389,7 @@ public class GameService {
     private void processNightActions(GameState gameState) {
         Map<String, Long> mafiaVotes = gameState.getNightActions().stream()
                 .filter(action -> {
-                    GamePlayer p = findPlayerById(gameState, action.getActorId());
+                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
                     return p != null && p.getRole() == PlayerRole.MAFIA;
                 })
                 .collect(Collectors.groupingBy(NightAction::getTargetId, Collectors.counting()));
@@ -336,7 +398,7 @@ public class GameService {
 
         String doctorTargetId = gameState.getNightActions().stream()
                 .filter(action -> {
-                    GamePlayer p = findPlayerById(gameState, action.getActorId());
+                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
                     return p != null && p.getRole() == PlayerRole.DOCTOR;
                 })
                 .map(NightAction::getTargetId).findFirst().orElse(null);
@@ -349,23 +411,6 @@ public class GameService {
         } else {
             sendSystemMessage(gameState.getRoomId(), "지난 밤, 아무 일도 일어나지 않았습니다.");
         }
-    }
-
-    private boolean checkGameEnd(GameState gameState) {
-        long mafia = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
-                .count();
-        long citizen = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA)
-                .count();
-
-        if (mafia >= citizen) {
-            endGame(gameState.getGameId(), "MAFIA");
-            return true;
-        }
-        if (mafia == 0) {
-            endGame(gameState.getGameId(), "CITIZEN");
-            return true;
-        }
-        return false;
     }
 
     // --- Utility Methods ---
@@ -411,12 +456,12 @@ public class GameService {
         return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();
     }
 
-    private GamePlayer findActivePlayerById(GameState gameState, String playerId) {
-        GamePlayer p = findPlayerById(gameState, playerId);
+    private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
+        GamePlayerState p = findPlayerById(gameState, playerId);
         return (p != null && p.isAlive()) ? p : null;
     }
 
-    private GamePlayer findPlayerById(GameState gameState, String playerId) {
+    private GamePlayerState findPlayerById(GameState gameState, String playerId) {
         if (gameState.getPlayers() == null)
             return null;
         return gameState.getPlayers().stream()
@@ -424,8 +469,9 @@ public class GameService {
                 .findFirst().orElse(null);
     }
 
-    private void findPlayerById(GameState gameState, String playerId, java.util.function.Consumer<GamePlayer> action) {
-        GamePlayer p = findPlayerById(gameState, playerId);
+    private void findPlayerById(GameState gameState, String playerId,
+            java.util.function.Consumer<GamePlayerState> action) {
+        GamePlayerState p = findPlayerById(gameState, playerId);
         if (p != null)
             action.accept(p);
     }
@@ -462,7 +508,7 @@ public class GameService {
         }
     }
 
-    private void sendPoliceInvestigationResult(GamePlayer police, GamePlayer target) {
+    private void sendPoliceInvestigationResult(GamePlayerState police, GamePlayerState target) {
         sendPrivateMessage(police.getPlayerId(), Map.of(
                 "type", "PRIVATE_MESSAGE",
                 "messageType", "POLICE_INVESTIGATION",

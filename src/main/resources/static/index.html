@@ -52,7 +52,8 @@
         <!-- 회원가입 폼 -->
         <div id="registerForm" class="login-form hidden">
             <h2>회원가입</h2>
-            <input type="text" id="regUserLoginId" placeholder="아이디" required>
+            <input type="text" id="regUserLoginId" placeholder="아이디" required
+                onkeypress="if(event.key==='Enter') register()">
             <div class="password-group">
                 <input type="password" id="regUserLoginPassword" placeholder="비밀번호" required
                     onkeyup="checkPasswordMatch()">
@@ -165,7 +166,7 @@
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 
 </html>

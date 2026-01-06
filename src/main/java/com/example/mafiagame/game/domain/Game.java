@@ -11,9 +11,13 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
-import lombok.*;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonManagedReference;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "games")
@@ -22,7 +26,6 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class Game {
     @Id
     @Column(name = "game_id", nullable = false)
@@ -35,8 +38,9 @@ public class Game {
     @Column(name = "status", nullable = false, length = 20)
     private GameStatus status;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "winner")
-    private String winner;
+    private Team winnerTeam;
 
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
@@ -46,6 +50,6 @@ public class Game {
 
     @Builder.Default
     @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonManagedReference
+    @JsonIgnore
     private List<GamePlayer> players = new ArrayList<>();
 }

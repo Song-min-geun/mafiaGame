@@ -4,7 +4,7 @@ import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.ChatMessage;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GamePlayerState;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
@@ -202,7 +202,7 @@ public class ChatRoomService {
         }
 
         // 3. 플레이어 상태 확인
-        GamePlayer player = gameState.getPlayers().stream()
+        GamePlayerState player = gameState.getPlayers().stream()
                 .filter(p -> p.getPlayerId().equals(playerId))
                 .findFirst().orElse(null);
 
