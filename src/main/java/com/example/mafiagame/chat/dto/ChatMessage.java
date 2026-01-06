@@ -18,9 +18,9 @@ public class ChatMessage {
     public enum MessageType {
         ROOM_CREATED,
         CHAT,
-        USER_JOINED, // 사용자 입장
-        USER_LEFT, // 사용자 퇴장
-        HOST_CHANGED, // 방장 변경
+        USER_JOINED,
+        USER_LEFT,
+        HOST_CHANGED,
         GAME_START,
         GAME_END,
         PHASE_CHANGE,
@@ -30,7 +30,6 @@ public class ChatMessage {
     }
 
     private MessageType type;
-    // Getter 메서드들
     private String roomId;
     private String roomName;
     private String senderId;

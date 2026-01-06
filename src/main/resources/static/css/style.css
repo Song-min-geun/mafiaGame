@@ -262,6 +262,46 @@ body {
     color: var(--text-muted);
 }
 
+.room-filters {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 0.9rem;
+}
+
+.filter-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.filter-checkbox:hover {
+    color: var(--text-main);
+}
+
+.sort-select {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-main);
+    padding: 4px 8px;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+}
+
+.sort-select:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.sort-select option {
+    background: #222;
+    color: var(--text-main);
+}
+
 .refresh-btn {
     background: transparent;
     border: none;
@@ -509,6 +549,8 @@ button:disabled {
     display: flex;
     gap: var(--spacing-sm);
     border-top: var(--glass-border);
+    z-index: 200;
+    /* Ensure chat input is above voting overlays if they overlap */
 }
 
 .chat-input input {
@@ -547,7 +589,9 @@ button:disabled {
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    top: 15%;
+    left: 50%;
+    transform: translate(-50%, 0);
     background: rgba(20, 20, 20, 0.95);
     padding: var(--spacing-lg);
     border-radius: var(--radius-lg);
@@ -558,6 +602,96 @@ button:disabled {
     max-width: 500px;
     text-align: center;
     backdrop-filter: blur(5px);
+    transition: all 0.3s ease;
+}
+
+.voting-area.minimized,
+.night-action-area.minimized {
+    height: 50px;
+    overflow: hidden;
+    padding: 0;
+    /* Maintained box style (background/border preserved from parent class) */
+}
+
+/* Hide everything when minimized except toggle button */
+.voting-area.minimized>*:not(.ui-toggle-btn),
+.night-action-area.minimized>*:not(.ui-toggle-btn) {
+    display: none !important;
+}
+
+.ui-toggle-btn {
+    position: absolute;
+    bottom: 0px;
+    left: 50%;
+    transform: translateX(-50%) rotate(180deg);
+    /* Default UP (to minimize) */
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 15px;
+    transition: all 0.3s ease;
+    z-index: 200;
+}
+
+.arrow-chevron {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-bottom: 2px solid white;
+    border-right: 2px solid white;
+    transform: rotate(45deg);
+    /* V shape */
+    box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* When minimized, rotate to DOWN (to expand) */
+.voting-area.minimized .ui-toggle-btn,
+.night-action-area.minimized .ui-toggle-btn {
+    transform: translateX(-50%) rotate(0deg);
+    bottom: 0px;
+    /* Adjust position */
+}
+
+.vote-option,
+.night-action-option {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.vote-option:hover,
+.night-action-option:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: var(--accent-gold);
+}
+
+.vote-option.selected,
+.night-action-option.selected {
+    background: rgba(255, 215, 0, 0.2);
+    border-color: var(--accent-gold);
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+}
+
+.player-name {
+    font-weight: bold;
+    color: white;
+}
+
+.vote-count {
+    font-size: 0.9em;
+    color: var(--text-muted);
+}
+
+.no-targets {
+    color: var(--text-muted);
+    padding: 10px;
 }
 
 .voting-header h3,

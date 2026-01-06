@@ -14,6 +14,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -46,6 +48,9 @@ public class ChatRoom {
 
     @Builder.Default
     private int maxPlayers = 8;
+
+    @Transient
+    private boolean isPlaying;
 
     public ChatRoom(String roomName, String hostId, String hostName) {
         this.roomId = UUID.randomUUID().toString();

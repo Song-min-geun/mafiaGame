@@ -52,7 +52,8 @@
         <!-- 회원가입 폼 -->
         <div id="registerForm" class="login-form hidden">
             <h2>회원가입</h2>
-            <input type="text" id="regUserLoginId" placeholder="아이디" required>
+            <input type="text" id="regUserLoginId" placeholder="아이디" required
+                onkeypress="if(event.key==='Enter') register()">
             <div class="password-group">
                 <input type="password" id="regUserLoginPassword" placeholder="비밀번호" required
                     onkeyup="checkPasswordMatch()">
@@ -74,10 +75,15 @@
 
                 <div class="room-list-header">
                     <h3>채팅룸 목록</h3>
-                    <button onclick="devQuickStart()" class="dev-btn"
-                        style="background-color: #ff4444; color: white; margin-right: 10px;">
-                        ⚡ DEV: Quick Start (8인)
-                    </button>
+                    <div class="room-filters">
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="hidePlayingCheckbox" onchange="filterAndSortRooms()"> 진행중인 게임 숨기기
+                        </label>
+                        <select id="roomSortSelect" onchange="filterAndSortRooms()" class="sort-select">
+                            <option value="countDesc">인원순</option>
+                            <option value="nameAsc">이름순</option>
+                        </select>
+                    </div>
                     <button onclick="refreshRoomList()" class="refresh-btn" id="refreshBtn">
                         <span class="refresh-icon">🔄</span>
                         <span class="refresh-text">새로고침</span>
@@ -127,7 +133,7 @@
                     <div class="voting-options" id="votingOptions">
                         <!-- 투표 대상 플레이어들이 여기에 표시됩니다 -->
                     </div>
-                    <div class="voting-actions">
+                    <div class="voting-actions" style="display: none;">
                         <button onclick="submitVote()" id="submitVoteBtn" disabled>투표하기</button>
                         <button onclick="cancelVote()" id="cancelVoteBtn">취소</button>
                     </div>
@@ -142,7 +148,7 @@
                     <div class="night-action-options" id="nightActionOptions">
                         <!-- 밤 액션 대상 플레이어들이 여기에 표시됩니다 -->
                     </div>
-                    <div class="night-action-actions">
+                    <div class="night-action-actions" style="display: none;">
                         <button onclick="submitNightAction()" id="submitNightActionBtn" disabled>액션 실행</button>
                         <button onclick="cancelNightAction()" id="cancelNightActionBtn">취소</button>
                     </div>
@@ -160,7 +166,7 @@
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 
 </html>

@@ -4,7 +4,10 @@ import java.io.Serializable;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
+
+import javax.crypto.SecretKey;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -13,6 +16,8 @@ import org.springframework.stereotype.Component;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 
 @Component
 public class JwtUtil implements Serializable {
@@ -22,15 +27,24 @@ public class JwtUtil implements Serializable {
     @Value("${jwt.secret}")
     private String secret;
 
-    @Value("${jwt.expiration}")
-    private long expiration;
+    @Value("${jwt.access-expiration}")
+    private long accessExpiration;
 
-    // JWT 토큰에서 사용자 이름(username) 추출
+    @Value("${jwt.refresh-expiration}")
+    private long refreshExpiration;
+
+    private SecretKey secretKey;
+
+    @PostConstruct
+    public void init() {
+        // Secret을 SecretKey 객체로 변환 (최소 256비트 = 32바이트 필요)
+        this.secretKey = Keys.hmacShaKeyFor(secret.getBytes());
+    }
+
     public String getUsernameFromToken(String token) {
         return getClaimFromToken(token, Claims::getSubject);
     }
 
-    // JWT 토큰에서 만료 날짜 추출
     public Date getExpirationDateFromToken(String token) {
         return getClaimFromToken(token, Claims::getExpiration);
     }
@@ -40,40 +54,54 @@ public class JwtUtil implements Serializable {
         return claimsResolver.apply(claims);
     }
 
-    // 토큰의 모든 정보(claims) 추출
     private Claims getAllClaimsFromToken(String token) {
-        return Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
+        return Jwts.parserBuilder()
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
     }
 
-    // 토큰이 만료되었는지 확인
     public Boolean isTokenExpired(String token) {
         final Date expirationDate = getExpirationDateFromToken(token);
         return expirationDate.before(new Date());
     }
 
-    // 사용자 정보를 기반으로 JWT 토큰 생성
-    public String generateToken(String username) {
+    // Access Token 생성 (30분)
+    public String generateAccessToken(String username) {
         Map<String, Object> claims = new HashMap<>();
-        return doGenerateToken(claims, username);
+        claims.put("type", "access");
+        return doGenerateToken(claims, username, accessExpiration);
     }
 
-    private String doGenerateToken(Map<String, Object> claims, String subject) {
+    // Refresh Token 생성 (7일)
+    public String generateRefreshToken(String username) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "refresh");
+        claims.put("tokenId", UUID.randomUUID().toString());
+        return doGenerateToken(claims, username, refreshExpiration);
+    }
+
+    // 기존 호환성 유지
+    public String generateToken(String username) {
+        return generateAccessToken(username);
+    }
+
+    private String doGenerateToken(Map<String, Object> claims, String subject, long expiration) {
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(subject)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(SignatureAlgorithm.HS256, secret) // HS256으로 변경
+                .signWith(secretKey, SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    // 토큰 유효성 검증
     public Boolean validateToken(String token, UserDetails userDetails) {
         final String username = getUsernameFromToken(token);
         return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
-    
-    // 토큰 유효성 검증 (UserDetails 없이)
+
     public Boolean validateToken(String token) {
         try {
             return !isTokenExpired(token);
@@ -81,5 +109,8 @@ public class JwtUtil implements Serializable {
             return false;
         }
     }
-}
 
+    public long getRefreshExpiration() {
+        return refreshExpiration;
+    }
+}
