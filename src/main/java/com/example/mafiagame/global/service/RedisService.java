@@ -17,33 +17,33 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class RedisService {
-    
+
     private final RedisTemplate<String, Object> redisTemplate;
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
     private final RedisTemplate<String, Game> gameRedisTemplate;
-    
+
     // Redis 키 상수
     private static final String CHAT_ROOM_PREFIX = "chat_room:";
     private static final String GAME_PREFIX = "game:";
     private static final String USER_SESSION_PREFIX = "user_session:";
     private static final String ROOM_LIST_KEY = "room_list";
     private static final String ACTIVE_GAMES_KEY = "active_games";
-    
+
     // ========== 채팅방 관련 ==========
-    
+
     /**
      * 채팅방 저장
      */
     public void saveChatRoom(ChatRoom chatRoom) {
         String key = CHAT_ROOM_PREFIX + chatRoom.getRoomId();
         chatRoomRedisTemplate.opsForValue().set(key, chatRoom, Duration.ofHours(24));
-        
+
         // 방 목록에 추가
         redisTemplate.opsForSet().add(ROOM_LIST_KEY, chatRoom.getRoomId());
-        
-        log.info("채팅방 Redis 저장: {}", chatRoom.getRoomId());
+
+        // log.info("채팅방 Redis 저장: {}", chatRoom.getRoomId());
     }
-    
+
     /**
      * 채팅방 조회
      */
@@ -51,20 +51,20 @@ public class RedisService {
         String key = CHAT_ROOM_PREFIX + roomId;
         return chatRoomRedisTemplate.opsForValue().get(key);
     }
-    
+
     /**
      * 채팅방 삭제
      */
     public void deleteChatRoom(String roomId) {
         String key = CHAT_ROOM_PREFIX + roomId;
         chatRoomRedisTemplate.delete(key);
-        
+
         // 방 목록에서 제거
         redisTemplate.opsForSet().remove(ROOM_LIST_KEY, roomId);
-        
-        log.info("채팅방 Redis 삭제: {}", roomId);
+
+        // log.info("채팅방 Redis 삭제: {}", roomId);
     }
-    
+
     /**
      * 모든 채팅방 ID 조회
      */
@@ -77,22 +77,22 @@ public class RedisService {
                 .map(Object::toString)
                 .collect(Collectors.toSet());
     }
-    
+
     // ========== 게임 관련 ==========
-    
+
     /**
      * 게임 저장
      */
     public void saveGame(Game game) {
         String key = GAME_PREFIX + game.getGameId();
         gameRedisTemplate.opsForValue().set(key, game, Duration.ofHours(24));
-        
+
         // 활성 게임 목록에 추가
         redisTemplate.opsForSet().add(ACTIVE_GAMES_KEY, game.getGameId());
-        
-        log.info("게임 Redis 저장: {}", game.getGameId());
+
+        // log.info("게임 Redis 저장: {}", game.getGameId());
     }
-    
+
     /**
      * 게임 조회
      */
@@ -100,20 +100,20 @@ public class RedisService {
         String key = GAME_PREFIX + gameId;
         return gameRedisTemplate.opsForValue().get(key);
     }
-    
+
     /**
      * 게임 삭제
      */
     public void deleteGame(String gameId) {
         String key = GAME_PREFIX + gameId;
         gameRedisTemplate.delete(key);
-        
+
         // 활성 게임 목록에서 제거
         redisTemplate.opsForSet().remove(ACTIVE_GAMES_KEY, gameId);
-        
-        log.info("게임 Redis 삭제: {}", gameId);
+
+        // log.info("게임 Redis 삭제: {}", gameId);
     }
-    
+
     /**
      * 모든 활성 게임 ID 조회
      */
@@ -126,7 +126,7 @@ public class RedisService {
                 .map(Object::toString)
                 .collect(Collectors.toSet());
     }
-    
+
     /**
      * 방 ID로 게임 조회
      */
@@ -140,9 +140,9 @@ public class RedisService {
         }
         return null;
     }
-    
+
     // ========== 사용자 세션 관련 ==========
-    
+
     /**
      * 사용자 세션 저장
      */
@@ -151,10 +151,10 @@ public class RedisService {
         redisTemplate.opsForHash().put(key, "roomId", roomId);
         redisTemplate.opsForHash().put(key, "gameId", gameId);
         redisTemplate.expire(key, Duration.ofHours(24));
-        
-        log.info("사용자 세션 저장: {} -> roomId: {}, gameId: {}", userId, roomId, gameId);
+
+        // log.info("사용자 세션 저장: {} -> roomId: {}, gameId: {}", userId, roomId, gameId);
     }
-    
+
     /**
      * 사용자 세션 조회
      */
@@ -163,7 +163,7 @@ public class RedisService {
         Object roomId = redisTemplate.opsForHash().get(key, "roomId");
         return roomId != null ? roomId.toString() : null;
     }
-    
+
     /**
      * 사용자 게임 ID 조회
      */
@@ -172,38 +172,41 @@ public class RedisService {
         Object gameId = redisTemplate.opsForHash().get(key, "gameId");
         return gameId != null ? gameId.toString() : null;
     }
-    
+
     /**
      * 사용자 세션 삭제
      */
     public void deleteUserSession(String userId) {
         String key = USER_SESSION_PREFIX + userId;
         redisTemplate.delete(key);
-        
-        log.info("사용자 세션 삭제: {}", userId);
+
+        // log.info("사용자 세션 삭제: {}", userId);
     }
-    
+
     // ========== 유틸리티 ==========
-    
+
     /**
      * 키 존재 여부 확인
      */
     public boolean exists(String key) {
         return redisTemplate.hasKey(key);
     }
-    
+
     /**
      * TTL 조회
      */
     public Long getTtl(String key) {
         return redisTemplate.getExpire(key, TimeUnit.SECONDS);
     }
-    
+
     /**
      * 모든 데이터 삭제 (개발용)
      */
     public void flushAll() {
-        redisTemplate.getConnectionFactory().getConnection().flushAll();
-        log.warn("Redis 모든 데이터 삭제됨");
+        var connectionFactory = redisTemplate.getConnectionFactory();
+        if (connectionFactory != null) {
+            connectionFactory.getConnection().serverCommands().flushAll();
+            log.warn("Redis 모든 데이터 삭제됨");
+        }
     }
 }

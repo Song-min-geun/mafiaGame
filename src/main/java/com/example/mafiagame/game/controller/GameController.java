@@ -1,10 +1,9 @@
 package com.example.mafiagame.game.controller;
 
 import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.user.domain.User;
-import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +14,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -26,7 +23,6 @@ import java.util.stream.Collectors;
 public class GameController {
 
     private final GameService gameService;
-    private final UserService userService;
     private final SimpMessagingTemplate messagingTemplate;
 
     private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
@@ -38,24 +34,15 @@ public class GameController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<?> createGame(@RequestBody Map<String, Object> request) {
-        String roomId = (String) request.get("roomId");
-        List<Map<String, Object>> playersData = (List<Map<String, Object>>) request.get("players");
-
-        List<GamePlayer> players = playersData.stream().map(playerData -> {
-            User user = userService.getUserByLoginId((String) playerData.get("playerId"));
-            return GamePlayer.builder()
-                    .user(user)
-                    .isHost((Boolean) playerData.getOrDefault("isHost", false))
-                    .isAlive(true)
-                    .build();
-        }).collect(Collectors.toList());
-
-        Game game = gameService.createGame(roomId, players);
-        gameService.assignRoles(game.getGameId()); // 역할 배정 및 메시지 전송
+    public ResponseEntity<?> createGame(@RequestBody CreateGameRequest request) {
+        Game game = gameService.createGame(request);
+        gameService.assignRoles(game.getGameId());
         gameService.startGame(game.getGameId());
+        log.info("game1 : {}", game);
 
-        messagingTemplate.convertAndSend("/topic/room." + roomId, Map.of("type", "GAME_START", "game", game));
+        GameState gameState = gameService.getGameState(game.getGameId());
+        messagingTemplate.convertAndSend("/topic/room." + request.roomId(),
+                Map.of("type", "GAME_START", "game", gameState));
 
         return ResponseEntity.ok(Map.of("success", true, "gameId", game.getGameId()));
     }
@@ -63,26 +50,36 @@ public class GameController {
     @MessageMapping("/game.vote")
     public void vote(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
-        if (principal == null) return;
+        if (principal == null)
+            return;
         gameService.vote(payload.get("gameId"), principal.getName(), payload.get("targetId"));
     }
 
     @MessageMapping("/game.finalVote")
     public void finalVote(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
-        if (principal == null) return;
+        if (principal == null)
+            return;
         gameService.finalVote(payload.get("gameId"), principal.getName(), payload.get("voteChoice"));
     }
 
     @MessageMapping("/game.nightAction")
     public void nightAction(@Payload Map<String, String> payload, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
-        if (principal == null) return;
+        if (principal == null)
+            return;
         gameService.nightAction(payload.get("gameId"), principal.getName(), payload.get("targetId"));
     }
 
     @GetMapping("/{gameId}/status")
     public ResponseEntity<?> getGameStatus(@PathVariable String gameId) {
+        // 1. 진행 중인 게임이면 Redis에서 상태 조회
+        GameState gameState = gameService.getGameState(gameId);
+        if (gameState != null) {
+            return ResponseEntity.ok(Map.of("success", true, "game", gameState));
+        }
+
+        // 2. 종료된 게임이면 DB에서 이력 조회
         Game game = gameService.getGame(gameId);
         return ResponseEntity.ok(Map.of("success", true, "game", game));
     }

@@ -41,7 +41,7 @@ public class ChatRoomController {
     }
 
     @MessageMapping("/chat.sendPrivateMessage")
-    public void sendPrivateMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor){
+    public void sendPrivateMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
         if (principal == null) {
             log.error("sendPrivateMessage 실패: Principal 객체를 찾을 수 없습니다.");
@@ -79,7 +79,7 @@ public class ChatRoomController {
         if (sessionAttributes != null && sessionAttributes.get("user") instanceof Principal) {
             Principal principal = (Principal) sessionAttributes.get("user");
             String userId = principal.getName();
-            log.info("WebSocket 연결 해제됨: {}", userId);
+            // log.info("WebSocket 연결 해제됨: {}", userId);
             chatRoomService.handleDisconnect(userId);
         }
     }

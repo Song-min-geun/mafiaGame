@@ -1,6 +1,7 @@
 package com.example.mafiagame.global.error;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,6 +28,6 @@ public class GlobalExceptionHandler {
                 .code("INTERNAL_SERVER_ERROR")
                 .message("Internal Server Error")
                 .build();
-        return new ResponseEntity<>(response, org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
