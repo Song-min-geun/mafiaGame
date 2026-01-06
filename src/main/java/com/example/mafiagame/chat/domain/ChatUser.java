@@ -21,10 +21,10 @@ public class ChatUser {
     private Long id;
 
     @Column(nullable = false)
-    private String userId; // User의 userLoginId
+    private String userId;
 
     @Column(nullable = false)
-    private String userName; // User의 nickname
+    private String userName;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_id")

@@ -1,11 +1,9 @@
 package com.example.mafiagame.game.controller;
 
 import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.user.domain.User;
-import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -16,9 +14,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -27,7 +23,6 @@ import java.util.stream.Collectors;
 public class GameController {
 
     private final GameService gameService;
-    private final UserService userService;
     private final SimpMessagingTemplate messagingTemplate;
 
     private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
@@ -39,27 +34,15 @@ public class GameController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<?> createGame(@RequestBody Map<String, Object> request) {
-        String roomId = (String) request.get("roomId");
-        List<Map<String, Object>> playersData = (List<Map<String, Object>>) request.get("players");
-
-        List<GamePlayer> players = playersData.stream().map(playerData -> {
-            User user = userService.getUserByLoginId((String) playerData.get("playerId"));
-            return GamePlayer.builder()
-                    .user(user)
-                    .isHost((Boolean) playerData.getOrDefault("isHost", false))
-                    .isAlive(true)
-                    .build();
-        }).collect(Collectors.toList());
-
-        Game game = gameService.createGame(roomId, players);
-        gameService.assignRoles(game.getGameId()); // 역할 배정 및 메시지 전송
+    public ResponseEntity<?> createGame(@RequestBody CreateGameRequest request) {
+        Game game = gameService.createGame(request);
+        gameService.assignRoles(game.getGameId());
         gameService.startGame(game.getGameId());
+        log.info("game1 : {}", game);
 
-        // Redis에서 최신 상태 조회 (클라이언트에게 실시간 정보 전송)
         GameState gameState = gameService.getGameState(game.getGameId());
-
-        messagingTemplate.convertAndSend("/topic/room." + roomId, Map.of("type", "GAME_START", "game", gameState));
+        messagingTemplate.convertAndSend("/topic/room." + request.roomId(),
+                Map.of("type", "GAME_START", "game", gameState));
 
         return ResponseEntity.ok(Map.of("success", true, "gameId", game.getGameId()));
     }
