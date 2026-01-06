@@ -1,6 +1,17 @@
 package com.example.mafiagame.game.service;
 
-import com.example.mafiagame.game.domain.*;
+import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePlayer;
+import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.GamePlayerState;
+import com.example.mafiagame.game.domain.GameStatus;
+import com.example.mafiagame.game.domain.GamePhase;
+import com.example.mafiagame.game.domain.PlayerRole;
+import com.example.mafiagame.game.domain.Team;
+import com.example.mafiagame.game.domain.Vote;
+import com.example.mafiagame.game.domain.FinalVote;
+import com.example.mafiagame.game.domain.NightAction;
+
 import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.repository.UserRepository;
@@ -15,7 +26,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,7 +55,15 @@ public class GameService {
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
 
-        // 1. MySQL: 이력 저장용 Entity 생성 (기본 정보만)
+        // ✅ N+1 해결: IN 쿼리로 모든 유저 한 번에 조회
+        List<String> playerIds = playersData.stream()
+                .map(CreateGameRequest.PlayerData::playerId)
+                .toList();
+        Map<String, User> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
+                .stream()
+                .collect(Collectors.toMap(User::getUserLoginId, u -> u));
+
+        // MySQL: 이력 저장용 Entity 생성
         Game game = Game.builder()
                 .gameId(gameId)
                 .roomId(roomId)
@@ -48,10 +72,10 @@ public class GameService {
                 .build();
 
         List<GamePlayer> dbPlayers = playersData.stream().map(pData -> {
-            String playerId = pData.playerId();
-            User user = userRepository.findByUserLoginId(playerId)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + playerId));
-
+            User user = userMap.get(pData.playerId());
+            if (user == null) {
+                throw new RuntimeException("User not found: " + pData.playerId());
+            }
             return GamePlayer.builder()
                     .game(game)
                     .user(user)
@@ -62,6 +86,7 @@ public class GameService {
         game.setPlayers(dbPlayers);
         gameRepository.save(game);
 
+        // Redis: 게임 상태 저장 (userMap 재사용)
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId(roomId)
@@ -69,9 +94,7 @@ public class GameService {
                 .gamePhase(GamePhase.DAY_DISCUSSION)
                 .currentPhase(0)
                 .players(playersData.stream().map(pData -> {
-                    String playerId = pData.playerId();
-                    User user = userRepository.findByUserLoginId(playerId).orElseThrow();
-
+                    User user = userMap.get(pData.playerId());
                     return GamePlayerState.builder()
                             .playerId(user.getUserLoginId())
                             .playerName(user.getNickname())
@@ -80,8 +103,7 @@ public class GameService {
                             .team(null)
                             .targetPlayerId(null)
                             .build();
-                })
-                        .collect(Collectors.toList()))
+                }).collect(Collectors.toList()))
                 .build();
         gameStateRepository.save(gameState);
 
@@ -165,24 +187,35 @@ public class GameService {
             gameRepository.save(game);
         });
 
-        // 사용자 전적 업데이트
+        List<String> playerIds = gameState.getPlayers().stream()
+                .map(GamePlayerState::getPlayerId)
+                .filter(id -> id != null)
+                .toList();
+
+        List<User> users = userRepository.findAllByUserLoginIdIn(playerIds);
+        Map<String, User> userMap = users.stream()
+                .collect(Collectors.toMap(User::getUserLoginId, u -> u));
+
+        // 각 플레이어의 전적 업데이트
         boolean isCitizenWin = "CITIZEN".equals(winner);
         for (GamePlayerState gp : gameState.getPlayers()) {
             if (gp.getPlayerId() == null)
                 continue;
 
-            userRepository.findByUserLoginId(gp.getPlayerId()).ifPresent(user -> {
-                user.incrementPlayCount();
-                boolean isMafia = (gp.getTeam() == Team.MAFIA);
+            User user = userMap.get(gp.getPlayerId());
+            if (user == null)
+                continue;
 
-                // 승리 조건: 시민팀 승리 & 본인이 시민(또는 의사/경찰) OR 마피아팀 승리 & 본인이 마피아
-                // Role이 MAFIA면 마피아팀, 그 외(CITIZEN, DOCTOR, POLICE)는 시민 팀
-                if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
-                    user.incrementWinCount();
-                }
-                userRepository.save(user);
-            });
+            user.incrementPlayCount();
+            boolean isMafia = (gp.getTeam() == Team.MAFIA);
+
+            // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
+            if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
+                user.incrementWinCount();
+            }
         }
+
+        userRepository.saveAll(users);
 
         // 3. 타이머 중지
         timerService.stopTimer(gameId);
