@@ -13,9 +13,4 @@ import com.example.mafiagame.user.domain.User;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUserLoginId(String userLoginId);
 
-    // N+1 해결: IN 쿼리로 여러 유저 한 번에 조회
-    List<User> findAllByUserLoginIdIn(List<String> userLoginIds);
-
-    // OAuth2: provider와 providerId로 사용자 조회
-    Optional<User> findByProviderAndProviderId(AuthProvider provider, String providerId);
 }
