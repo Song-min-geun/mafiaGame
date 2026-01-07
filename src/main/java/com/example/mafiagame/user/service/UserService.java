@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null") // Lombok Builder와 JPA Repository는 null 반환하지 않음
 public class UserService {
 
     private final UserRepository userRepository;
