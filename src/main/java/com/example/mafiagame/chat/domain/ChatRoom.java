@@ -32,7 +32,7 @@ public class ChatRoom {
     @Column(name = "room_id")
     private String roomId;
 
-    @Column(name = "room_name", nullable = false)
+    @Column(name = "room_name")
     private String roomName;
 
     @Column(name = "host_id", nullable = false)
@@ -54,7 +54,11 @@ public class ChatRoom {
 
     public ChatRoom(String roomName, String hostId, String hostName) {
         this.roomId = UUID.randomUUID().toString();
-        this.roomName = roomName;
+        if (roomName == null || roomName.trim().isEmpty()) {
+            this.roomName = "마피아 게임 " + Math.random() * 100;
+        } else {
+            this.roomName = roomName;
+        }
         this.hostId = hostId;
         this.hostName = hostName;
     }
