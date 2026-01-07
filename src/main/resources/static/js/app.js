@@ -11,6 +11,7 @@ import {
     setCurrentGame,
     setCurrentRoomInfo,
     setGameStarted,
+    setJwtToken,
     resetAll
 } from './state.js';
 import * as api from './api/apiService.js';
@@ -20,10 +21,43 @@ import * as roomUI from './ui/roomUI.js';
 import * as chatUI from './ui/chatUI.js';
 import * as gameUI from './ui/gameUI.js';
 import * as timerUI from './ui/timerUI.js';
+import { hideElement, showElement } from './utils/helpers.js';
 
 // Initialize application on DOM load
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🎮 마피아 게임 초기화 중...');
+
+    // OAuth 로그인 후 토큰 처리
+    const urlParams = new URLSearchParams(window.location.search);
+    const accessToken = urlParams.get('accessToken');
+    const refreshToken = urlParams.get('refreshToken');
+
+    if (accessToken && refreshToken) {
+        console.log('🔑 OAuth 토큰 감지, 저장 중...');
+        // setJwtToken으로 localStorage와 AppState 모두 업데이트
+        const token = 'Bearer ' + accessToken;
+        setJwtToken(token);
+        localStorage.setItem('refreshToken', refreshToken);
+
+        // URL에서 토큰 파라미터 제거 (깔끔한 URL 유지)
+        window.history.replaceState({}, document.title, '/');
+
+        // OAuth 로그인 후 유저 정보 가져오기
+        try {
+            const userData = await api.validateSession();
+            if (userData) {
+                console.log('✅ OAuth 로그인 성공:', userData);
+                hideElement('loginForm');
+                hideElement('registerForm');
+                showElement('gameScreen');
+                await ws.connect();
+                await initializeApp();
+                return;
+            }
+        } catch (error) {
+            console.error('OAuth 세션 초기화 실패:', error);
+        }
+    }
 
     // Try to restore session
     if (await authUI.tryRestoreSession()) {
