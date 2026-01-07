@@ -768,3 +768,87 @@ button:disabled {
 .hidden {
     display: none !important;
 }
+
+/* Social Login Buttons */
+.social-login-divider {
+    display: flex;
+    align-items: center;
+    margin: var(--spacing-md) 0;
+    color: var(--text-muted);
+}
+
+.social-login-divider::before,
+.social-login-divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.social-login-divider span {
+    padding: 0 var(--spacing-md);
+    font-size: 0.85rem;
+}
+
+.social-login-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.social-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    width: 100%;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    font-weight: bold;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: none;
+    margin-top: var(--spacing-sm);
+}
+
+.social-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.google-btn {
+    background: white;
+    color: #444;
+}
+
+.google-btn:hover {
+    background: #f5f5f5;
+}
+
+.github-btn {
+    background: #24292e;
+    color: white;
+}
+
+.github-btn:hover {
+    background: #3a3f44;
+}
+
+.naver-btn {
+    background: #03C75A;
+    color: white;
+}
+
+.naver-btn:hover {
+    background: #02b351;
+}
+
+.kakao-btn {
+    background: #FEE500;
+    color: #000;
+}
+
+.kakao-btn:hover {
+    background: #e6cf00;
+}
