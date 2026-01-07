@@ -69,11 +69,22 @@ export async function register(userLoginId, userLoginPassword, nickname) {
 }
 
 /**
- * Validate current session
+ * Validate current session and load user info
  */
 export async function validateSession() {
     const response = await apiRequest(API_ENDPOINTS.USER_ME);
-    return response.ok;
+
+    if (!response.ok) {
+        return false;
+    }
+
+    const result = await response.json();
+    if (result.success && result.data) {
+        setCurrentUser(result.data);
+        return result.data;
+    }
+
+    return false;
 }
 
 /**

@@ -15,20 +15,6 @@ import lombok.Setter;
 @AllArgsConstructor
 public class ChatMessage {
 
-    public enum MessageType {
-        ROOM_CREATED,
-        CHAT,
-        USER_JOINED,
-        USER_LEFT,
-        HOST_CHANGED,
-        GAME_START,
-        GAME_END,
-        PHASE_CHANGE,
-        VOTE,
-        ROLE_ASSIGN,
-        GAME_RESULT
-    }
-
     private MessageType type;
     private String roomId;
     private String roomName;
@@ -37,6 +23,5 @@ public class ChatMessage {
     private String recipient;
     private String content;
     private Long timestamp;
-
     private Map<String, Object> data;
 }
