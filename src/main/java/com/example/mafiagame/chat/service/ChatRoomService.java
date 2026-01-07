@@ -2,6 +2,7 @@ package com.example.mafiagame.chat.service;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.ChatMessage;
+import com.example.mafiagame.chat.dto.MessageType;
 import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GamePlayerState;
@@ -117,7 +118,7 @@ public class ChatRoomService {
         }
 
         ChatMessage joinMessage = ChatMessage.builder()
-                .type(ChatMessage.MessageType.USER_JOINED)
+                .type(MessageType.USER_JOINED)
                 .roomId(roomId)
                 .roomName(room.getRoomName())
                 .content(content)
@@ -141,7 +142,7 @@ public class ChatRoomService {
 
         if (room.getParticipants().size() > 1) {
             ChatMessage leaveMessage = ChatMessage.builder()
-                    .type(ChatMessage.MessageType.USER_LEFT)
+                    .type(MessageType.USER_LEFT)
                     .roomId(roomId)
                     .senderId("SYSTEM")
                     .senderName("시스템")
