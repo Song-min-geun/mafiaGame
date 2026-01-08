@@ -113,8 +113,8 @@ export function renderRoomList() {
  * Create new room
  */
 export async function createRoom() {
-    const roomName = prompt('방 이름을 입력하세요:');
-    if (!roomName) return;
+    const roomName = prompt('방 이름을 입력하세요 (비워두면 자동 생성):');
+    if (roomName === null) return; // 취소 버튼만 return
 
     try {
         const room = await api.createRoom(roomName);
