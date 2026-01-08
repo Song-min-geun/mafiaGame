@@ -13,4 +13,7 @@ import com.example.mafiagame.user.domain.User;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUserLoginId(String userLoginId);
 
+    Optional<User> findByProviderAndProviderId(AuthProvider provider, String providerId);
+
+    List<User> findAllByUserLoginIdIn(List<String> userLoginIds);
 }
