@@ -195,6 +195,13 @@ export async function leaveRoom() {
     const currentRoom = getCurrentRoom();
     if (!currentRoom) return;
 
+    // 게임 진행 중이면서 살아있는 플레이어는 방 이탈 차단 (죽은 플레이어는 허용)
+    const state = getState();
+    if (state.isGameStarted && !state.isPlayerDead) {
+        alert('게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.');
+        return;
+    }
+
     try {
         ws.leaveRoom(currentRoom);
         ws.unsubscribeFromRoom(getState().currentRoomSubscription);
