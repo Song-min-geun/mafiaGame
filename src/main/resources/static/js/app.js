@@ -9,7 +9,9 @@ import {
     getState,
     setCurrentUser,
     setCurrentGame,
+    setCurrentRoom,
     setCurrentRoomInfo,
+    setCurrentRoomName,
     setGameStarted,
     setJwtToken,
     resetAll
@@ -81,16 +83,116 @@ async function initializeApp() {
     // Load rooms
     await roomUI.loadRooms();
 
-    // Restore room connection if exists
-    const currentRoom = getCurrentRoom();
-    if (currentRoom) {
-        console.log('🔄 이전 방 접속 복구:', currentRoom);
-        await window.joinRoom(currentRoom);
+    // URL 파라미터로 전략 선택 (?strategy=localStorage 또는 ?strategy=redis)
+    const urlParams = new URLSearchParams(window.location.search);
+    const strategy = urlParams.get('strategy') || 'redis'; // 기본값: redis
+
+    console.log(`📊 [성능 테스트] 전략: ${strategy}`);
+    const startTime = performance.now();
+
+    if (strategy === 'localStorage') {
+        // ========== LocalStorage 방식 ==========
+        await restoreFromLocalStorage();
+    } else {
+        // ========== Redis 방식 (기본) ==========
+        await restoreFromRedis();
     }
+
+    const endTime = performance.now();
+    const elapsedTime = (endTime - startTime).toFixed(2);
+    console.log(`📊 [성능 테스트] ${strategy} 방식 소요 시간: ${elapsedTime}ms`);
+
+    // 브라우저 콘솔에 눈에 띄게 표시
+    console.log('%c' + `⏱️ ${strategy.toUpperCase()} 방식: ${elapsedTime}ms`,
+        'background: #222; color: #bada55; font-size: 16px; padding: 5px;');
 
     // Update UI
     gameUI.updateUserInfo();
     gameUI.updateGameButtons();
+}
+
+/**
+ * LocalStorage 기반 게임 상태 복구
+ */
+async function restoreFromLocalStorage() {
+    console.log('🔧 [LocalStorage] 복구 시작...');
+
+    const state = getState();
+    const currentRoom = getCurrentRoom();
+
+    if (!currentRoom) {
+        console.log('ℹ️ [LocalStorage] 저장된 방 없음');
+        return;
+    }
+
+    console.log('🔄 [LocalStorage] 방 재연결:', currentRoom);
+    await window.joinRoom(currentRoom);
+
+    // 게임 진행 중이었다면 게임 상태 복구
+    if (state.isGameStarted && state.currentGameId) {
+        console.log('🎮 [LocalStorage] 게임 상태 복구 시도:', state.currentGameId);
+        try {
+            const gameState = await api.fetchGameState(currentRoom);
+            if (gameState) {
+                console.log('✅ [LocalStorage] 게임 상태 복구 성공');
+                setCurrentGame(gameState);
+                setGameStarted(true);
+                gameUI.updateGameUI(gameState);
+                chatUI.addSystemMessage('게임에 다시 연결되었습니다. (LocalStorage)');
+            } else {
+                console.log('ℹ️ [LocalStorage] 진행 중인 게임 없음 - 상태 초기화');
+                setGameStarted(false);
+                setCurrentGame(null);
+            }
+        } catch (error) {
+            console.error('[LocalStorage] 게임 상태 복구 실패:', error);
+            setGameStarted(false);
+            setCurrentGame(null);
+        }
+    }
+}
+
+/**
+ * Redis 기반 게임 상태 복구
+ */
+async function restoreFromRedis() {
+    console.log('🔧 [Redis] 복구 시작...');
+
+    try {
+        const myGame = await api.fetchMyGame();
+        if (myGame && myGame.success) {
+            console.log('🎮 [Redis] 진행 중인 게임 발견:', myGame);
+            const { data: gameState, roomId, roomName } = myGame;
+
+            // 방 재연결
+            setCurrentRoom(roomId);
+            setCurrentRoomName(roomName);
+            console.log('🔄 [Redis] 방 재연결:', roomId, roomName);
+            await window.joinRoom(roomId);
+
+            // 게임 상태 복구
+            setCurrentGame(gameState);
+            setGameStarted(true);
+            gameUI.updateGameUI(gameState);
+            chatUI.addSystemMessage('게임에 다시 연결되었습니다. (Redis)');
+        } else {
+            console.log('ℹ️ [Redis] 진행 중인 게임 없음');
+            // 진행 중인 게임이 없으면 localStorage에서 방 정보만 복구
+            const currentRoom = getCurrentRoom();
+            if (currentRoom) {
+                console.log('🔄 [Redis] 이전 방 접속 복구:', currentRoom);
+                await window.joinRoom(currentRoom);
+            }
+        }
+    } catch (error) {
+        console.error('[Redis] 게임 상태 확인 실패:', error);
+        // 에러 발생 시 localStorage 기반 복구 시도
+        const currentRoom = getCurrentRoom();
+        if (currentRoom) {
+            console.log('🔄 [Redis] fallback - localStorage 방 복구:', currentRoom);
+            await window.joinRoom(currentRoom);
+        }
+    }
 }
 
 /**
