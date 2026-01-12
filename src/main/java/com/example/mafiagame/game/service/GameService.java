@@ -21,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,8 +45,71 @@ public class GameService {
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     @Lazy
     private final TimerService timerService;
+
+    // Redis Key Prefixes
+    private static final String GAME_STATE_KEY_PREFIX = "game:state:";
+    private static final String VOTE_KEY_PREFIX = "game:votes:";
+    private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
+    private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
+
+    // Lua Script for atomic vote operation
+    private static final String VOTE_LUA_SCRIPT = """
+            local gameStateKey = KEYS[1]
+            local votesKey = KEYS[2]
+            local voterId = ARGV[1]
+            local targetId = ARGV[2]
+
+            -- 게임 상태 존재 확인
+            local exists = redis.call('EXISTS', gameStateKey)
+            if exists == 0 then
+                return 'ERROR:GAME_NOT_FOUND'
+            end
+
+            -- 투표 저장 (Hash: voterId -> targetId)
+            redis.call('HSET', votesKey, voterId, targetId)
+            redis.call('EXPIRE', votesKey, 1800)
+
+            return 'OK'
+            """;
+
+    // Lua Script for final vote operation
+    private static final String FINAL_VOTE_LUA_SCRIPT = """
+            local gameStateKey = KEYS[1]
+            local finalVotesKey = KEYS[2]
+            local voterId = ARGV[1]
+            local voteChoice = ARGV[2]
+
+            local exists = redis.call('EXISTS', gameStateKey)
+            if exists == 0 then
+                return 'ERROR:GAME_NOT_FOUND'
+            end
+
+            redis.call('HSET', finalVotesKey, voterId, voteChoice)
+            redis.call('EXPIRE', finalVotesKey, 1800)
+
+            return 'OK'
+            """;
+
+    // Lua Script for night action operation
+    private static final String NIGHT_ACTION_LUA_SCRIPT = """
+            local gameStateKey = KEYS[1]
+            local nightActionsKey = KEYS[2]
+            local actorId = ARGV[1]
+            local targetId = ARGV[2]
+
+            local exists = redis.call('EXISTS', gameStateKey)
+            if exists == 0 then
+                return 'ERROR:GAME_NOT_FOUND'
+            end
+
+            redis.call('HSET', nightActionsKey, actorId, targetId)
+            redis.call('EXPIRE', nightActionsKey, 1800)
+
+            return 'OK'
+            """;
 
     // --- Game Logic (Persistence + Redis) ---
 
@@ -275,6 +340,11 @@ public class GameService {
         return false;
     }
 
+    /**
+     * 투표 (Lua Script 기반 원자적 처리)
+     * 
+     * 동시에 여러 플레이어가 투표해도 데이터 유실 없이 처리됩니다.
+     */
     public void vote(String gameId, String voterId, String targetId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null || gameState.getGamePhase() != GamePhase.DAY_VOTING)
@@ -283,12 +353,29 @@ public class GameService {
         if (findActivePlayerById(gameState, voterId) == null)
             return;
 
-        gameState.getVotes().removeIf(v -> v.getVoterId().equals(voterId));
-        gameState.getVotes().add(Vote.builder().voterId(voterId).targetId(targetId).build());
+        // Lua Script로 원자적 투표 저장
+        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
+        String votesKey = VOTE_KEY_PREFIX + gameId;
 
-        gameStateRepository.save(gameState);
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
+        script.setScriptText(VOTE_LUA_SCRIPT);
+        script.setResultType(String.class);
+
+        try {
+            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, votesKey), voterId, targetId);
+            if ("OK".equals(result)) {
+                log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
+            } else {
+                log.warn("[투표] 실패: gameId={}, result={}", gameId, result);
+            }
+        } catch (Exception e) {
+            log.error("[투표] Lua Script 오류: gameId={}", gameId, e);
+        }
     }
 
+    /**
+     * 최종 투표 (Lua Script 기반 원자적 처리)
+     */
     public void finalVote(String gameId, String voterId, String voteChoice) {
         GameState gameState = getGameState(gameId);
         if (gameState == null || gameState.getGamePhase() != GamePhase.DAY_FINAL_VOTING)
@@ -298,12 +385,29 @@ public class GameService {
         if (findActivePlayerById(gameState, voterId) == null || voterId.equals(gameState.getVotedPlayerId()))
             return;
 
-        gameState.getFinalVotes().removeIf(v -> v.getVoterId().equals(voterId));
-        gameState.getFinalVotes().add(FinalVote.builder().voterId(voterId).vote(voteChoice).build());
+        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
+        String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
 
-        gameStateRepository.save(gameState);
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
+        script.setScriptText(FINAL_VOTE_LUA_SCRIPT);
+        script.setResultType(String.class);
+
+        try {
+            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, finalVotesKey), voterId,
+                    voteChoice);
+            if ("OK".equals(result)) {
+                log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
+            } else {
+                log.warn("[최종투표] 실패: gameId={}, result={}", gameId, result);
+            }
+        } catch (Exception e) {
+            log.error("[최종투표] Lua Script 오류: gameId={}", gameId, e);
+        }
     }
 
+    /**
+     * 밤 행동 (Lua Script 기반 원자적 처리)
+     */
     public void nightAction(String gameId, String actorId, String targetId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null || gameState.getGamePhase() != GamePhase.NIGHT_ACTION)
@@ -313,17 +417,31 @@ public class GameService {
         if (actor == null || actor.getRole() == PlayerRole.CITIZEN)
             return;
 
-        gameState.getNightActions().removeIf(action -> action.getActorId().equals(actorId));
-        gameState.getNightActions().add(NightAction.builder().actorId(actorId).targetId(targetId).build());
+        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
+        String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
 
-        // 경찰은 즉시 결과 확인
-        if (actor.getRole() == PlayerRole.POLICE) {
-            GamePlayerState target = findPlayerById(gameState, targetId);
-            if (target != null)
-                sendPoliceInvestigationResult(actor, target);
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
+        script.setScriptText(NIGHT_ACTION_LUA_SCRIPT);
+        script.setResultType(String.class);
+
+        try {
+            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, nightActionsKey), actorId,
+                    targetId);
+            if ("OK".equals(result)) {
+                log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
+
+                // 경찰은 즉시 결과 확인
+                if (actor.getRole() == PlayerRole.POLICE) {
+                    GamePlayerState target = findPlayerById(gameState, targetId);
+                    if (target != null)
+                        sendPoliceInvestigationResult(actor, target);
+                }
+            } else {
+                log.warn("[밤행동] 실패: gameId={}, result={}", gameId, result);
+            }
+        } catch (Exception e) {
+            log.error("[밤행동] Lua Script 오류: gameId={}", gameId, e);
         }
-
-        gameStateRepository.save(gameState);
     }
 
     public boolean updateTime(String gameId, String playerId, int seconds) {
@@ -380,6 +498,9 @@ public class GameService {
     }
 
     private void processDayVoting(GameState gameState) {
+        // Redis Hash에서 투표 동기화
+        syncVotesFromRedis(gameState);
+
         List<String> topVotedIds = getTopVotedPlayers(gameState.getVotes());
         if (topVotedIds.size() != 1) {
             sendSystemMessage(gameState.getRoomId(), "투표가 무효 처리되어 밤으로 넘어갑니다.");
@@ -393,9 +514,13 @@ public class GameService {
                     String.format("투표 결과 %s님이 최다 득표자가 되었습니다. 최후 변론을 시작합니다.", player.getPlayerName())));
         }
         gameState.getVotes().clear();
+        clearVotesFromRedis(gameState.getGameId());
     }
 
     private void processFinalVoting(GameState gameState) {
+        // Redis Hash에서 최종 투표 동기화
+        syncFinalVotesFromRedis(gameState);
+
         long agree = gameState.getFinalVotes().stream().filter(v -> "AGREE".equals(v.getVote())).count();
         long disagree = gameState.getFinalVotes().stream().filter(v -> "DISAGREE".equals(v.getVote())).count();
 
@@ -406,6 +531,7 @@ public class GameService {
                         String.format("최종 투표 결과, %s님이 처형되었습니다.", player.getPlayerName()));
             });
         }
+        clearFinalVotesFromRedis(gameState.getGameId());
 
         if (checkGameEnd(gameState))
             return;
@@ -413,10 +539,74 @@ public class GameService {
     }
 
     private void processNight(GameState gameState) {
+        // Redis Hash에서 밤 행동 동기화
+        syncNightActionsFromRedis(gameState);
+
         processNightActions(gameState);
+        clearNightActionsFromRedis(gameState.getGameId());
+
         if (checkGameEnd(gameState))
             return;
         toNextDayPhase(gameState);
+    }
+
+    // ========== Redis Hash → GameState 동기화 메서드 ==========
+
+    private void syncVotesFromRedis(GameState gameState) {
+        String votesKey = VOTE_KEY_PREFIX + gameState.getGameId();
+        try {
+            var votes = stringRedisTemplate.opsForHash().entries(votesKey);
+            gameState.getVotes().clear();
+            votes.forEach((voterId, targetId) -> gameState.getVotes().add(Vote.builder()
+                    .voterId((String) voterId)
+                    .targetId((String) targetId)
+                    .build()));
+            log.debug("[동기화] 투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
+        } catch (Exception e) {
+            log.error("[동기화] 투표 로드 실패: gameId={}", gameState.getGameId(), e);
+        }
+    }
+
+    private void syncFinalVotesFromRedis(GameState gameState) {
+        String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameState.getGameId();
+        try {
+            var votes = stringRedisTemplate.opsForHash().entries(finalVotesKey);
+            gameState.getFinalVotes().clear();
+            votes.forEach((voterId, voteChoice) -> gameState.getFinalVotes().add(FinalVote.builder()
+                    .voterId((String) voterId)
+                    .vote((String) voteChoice)
+                    .build()));
+            log.debug("[동기화] 최종투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
+        } catch (Exception e) {
+            log.error("[동기화] 최종투표 로드 실패: gameId={}", gameState.getGameId(), e);
+        }
+    }
+
+    private void syncNightActionsFromRedis(GameState gameState) {
+        String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameState.getGameId();
+        try {
+            var actions = stringRedisTemplate.opsForHash().entries(nightActionsKey);
+            gameState.getNightActions().clear();
+            actions.forEach((actorId, targetId) -> gameState.getNightActions().add(NightAction.builder()
+                    .actorId((String) actorId)
+                    .targetId((String) targetId)
+                    .build()));
+            log.debug("[동기화] 밤행동 {}건 로드: gameId={}", actions.size(), gameState.getGameId());
+        } catch (Exception e) {
+            log.error("[동기화] 밤행동 로드 실패: gameId={}", gameState.getGameId(), e);
+        }
+    }
+
+    private void clearVotesFromRedis(String gameId) {
+        stringRedisTemplate.delete(VOTE_KEY_PREFIX + gameId);
+    }
+
+    private void clearFinalVotesFromRedis(String gameId) {
+        stringRedisTemplate.delete(FINAL_VOTE_KEY_PREFIX + gameId);
+    }
+
+    private void clearNightActionsFromRedis(String gameId) {
+        stringRedisTemplate.delete(NIGHT_ACTION_KEY_PREFIX + gameId);
     }
 
     private void processNightActions(GameState gameState) {
