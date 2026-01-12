@@ -96,4 +96,47 @@ public class GameController {
         }
         return ResponseEntity.badRequest().body(Map.of("success", false, "message", "시간 조절에 실패했습니다."));
     }
+
+    /**
+     * 방 ID로 현재 진행 중인 게임 상태 조회
+     * 새로고침 시 게임 상태 복구용
+     */
+    @GetMapping("/state/{roomId}")
+    public ResponseEntity<?> getGameStateByRoom(@PathVariable String roomId) {
+        Game game = gameService.getGameByRoomId(roomId);
+        if (game == null) {
+            return ResponseEntity.ok(Map.of("success", false, "message", "진행 중인 게임이 없습니다."));
+        }
+
+        GameState gameState = gameService.getGameState(game.getGameId());
+        if (gameState != null) {
+            return ResponseEntity.ok(Map.of("success", true, "data", gameState));
+        }
+
+        return ResponseEntity.ok(Map.of("success", false, "message", "게임 상태를 찾을 수 없습니다."));
+    }
+
+    /**
+     * 현재 유저가 참여 중인 게임 조회
+     * 새로고침 시 자동 재연결용
+     */
+    @GetMapping("/my-game")
+    public ResponseEntity<?> getMyGame(Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.ok(Map.of("success", false, "message", "인증 정보가 없습니다."));
+        }
+
+        String userId = principal.getName();
+        GameState gameState = gameService.getGameByPlayerId(userId);
+
+        if (gameState != null) {
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", gameState,
+                    "roomId", gameState.getRoomId(),
+                    "roomName", gameState.getRoomName() != null ? gameState.getRoomName() : ""));
+        }
+
+        return ResponseEntity.ok(Map.of("success", false, "message", "참여 중인 게임이 없습니다."));
+    }
 }
