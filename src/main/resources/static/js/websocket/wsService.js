@@ -6,7 +6,8 @@ import {
     getCurrentUser,
     setStompClient,
     getStompClient,
-    setCurrentRoomSubscription
+    setCurrentRoomSubscription,
+    getState
 } from '../state.js';
 
 let privateSubscription = null;
@@ -115,6 +116,14 @@ export function subscribeToRoom(roomId, onMessage) {
         return null;
     }
 
+    // 기존 구독이 있으면 먼저 해제 (중복 구독 방지)
+    const state = getCurrentRoomSubscriptionFromState();
+    if (state) {
+        console.log('기존 방 구독 해제');
+        state.unsubscribe();
+        setCurrentRoomSubscription(null);
+    }
+
     const topic = WS_TOPICS.ROOM(roomId);
     console.log(`방 구독: ${topic}`);
 
@@ -126,6 +135,11 @@ export function subscribeToRoom(roomId, onMessage) {
 
     setCurrentRoomSubscription(subscription);
     return subscription;
+}
+
+// Helper to get current subscription from state
+function getCurrentRoomSubscriptionFromState() {
+    return getState().currentRoomSubscription;
 }
 
 /**

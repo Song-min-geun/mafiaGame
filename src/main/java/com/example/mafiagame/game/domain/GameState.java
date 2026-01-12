@@ -22,6 +22,8 @@ public class GameState {
 
     private String roomId;
 
+    private String roomName;
+
     @Builder.Default
     private GameStatus status = GameStatus.WAITING;
 

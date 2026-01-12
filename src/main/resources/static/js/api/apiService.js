@@ -140,14 +140,28 @@ export async function fetchRoomDetails(roomId) {
 /**
  * Create a new game
  */
-export async function createGame(roomId, players) {
+export async function createGame(roomId, roomName, players) {
     const response = await apiRequest(API_ENDPOINTS.GAME_CREATE, {
         method: 'POST',
-        body: JSON.stringify({ roomId, players })
+        body: JSON.stringify({ roomId, roomName, players })
     });
 
     const result = await response.json();
     return result;
+}
+
+/**
+ * Fetch current user's active game
+ */
+export async function fetchMyGame() {
+    const response = await apiRequest(`${API_ENDPOINTS.GAME_STATE.replace('/state', '/my-game')}`);
+
+    if (!response.ok) {
+        return null;
+    }
+
+    const result = await response.json();
+    return result.success ? result : null;
 }
 
 /**
@@ -161,3 +175,18 @@ export async function updateGameTime(gameId, playerId, seconds) {
 
     return response.json();
 }
+
+/**
+ * Fetch current game state for a room
+ */
+export async function fetchGameState(roomId) {
+    const response = await apiRequest(`${API_ENDPOINTS.GAME_STATE}/${roomId}`);
+
+    if (!response.ok) {
+        return null;
+    }
+
+    const result = await response.json();
+    return result.success ? result.data : null;
+}
+
