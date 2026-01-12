@@ -113,8 +113,8 @@ export function renderRoomList() {
  * Create new room
  */
 export async function createRoom() {
-    const roomName = prompt('방 이름을 입력하세요:');
-    if (!roomName) return;
+    const roomName = prompt('방 이름을 입력하세요 (비워두면 자동 생성):');
+    if (roomName === null) return; // 취소 버튼만 return
 
     try {
         const room = await api.createRoom(roomName);
@@ -194,6 +194,13 @@ export async function joinRoom(roomId) {
 export async function leaveRoom() {
     const currentRoom = getCurrentRoom();
     if (!currentRoom) return;
+
+    // 게임 진행 중이면서 살아있는 플레이어는 방 이탈 차단 (죽은 플레이어는 허용)
+    const state = getState();
+    if (state.isGameStarted && !state.isPlayerDead) {
+        alert('게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.');
+        return;
+    }
 
     try {
         ws.leaveRoom(currentRoom);

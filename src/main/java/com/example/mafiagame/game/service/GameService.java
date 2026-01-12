@@ -55,7 +55,6 @@ public class GameService {
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
 
-        // ✅ N+1 해결: IN 쿼리로 모든 유저 한 번에 조회
         List<String> playerIds = playersData.stream()
                 .map(CreateGameRequest.PlayerData::playerId)
                 .toList();
@@ -90,6 +89,7 @@ public class GameService {
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId(roomId)
+                .roomName(request.roomName())
                 .status(GameStatus.IN_PROGRESS)
                 .gamePhase(GamePhase.DAY_DISCUSSION)
                 .currentPhase(0)
@@ -458,10 +458,16 @@ public class GameService {
     }
 
     public Game getGameByRoomId(String roomId) {
-        // 주의: DB에서 가져오므로 실시간 상태가 아님.
-        // Active Game을 찾으려면 Redis를 뒤져야 하는데, Keys * 는 성능 이슈.
-        // 편의상 DB에서 Status가 IN_PROGRESS인 것을 찾음.
-        return gameRepository.findByRoomIdAndStatus(roomId, GameStatus.IN_PROGRESS).orElse(null);
+        // 가장 최근 진행 중인 게임 반환
+        return gameRepository.findFirstByRoomIdAndStatusOrderByStartTimeDesc(roomId, GameStatus.IN_PROGRESS)
+                .orElse(null);
+    }
+
+    /**
+     * 유저가 참여 중인 게임 조회 (Redis)
+     */
+    public GameState getGameByPlayerId(String playerId) {
+        return gameStateRepository.findByPlayerId(playerId).orElse(null);
     }
 
     // 사용되지 않을 수 있으나 호환성 유지

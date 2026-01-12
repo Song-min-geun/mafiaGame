@@ -55,7 +55,7 @@ public class ChatRoom {
     public ChatRoom(String roomName, String hostId, String hostName) {
         this.roomId = UUID.randomUUID().toString();
         if (roomName == null || roomName.trim().isEmpty()) {
-            this.roomName = "마피아 게임 " + Math.random() * 100;
+            this.roomName = "마피아 게임 #" + (int) (Math.random() * 1000);
         } else {
             this.roomName = roomName;
         }
