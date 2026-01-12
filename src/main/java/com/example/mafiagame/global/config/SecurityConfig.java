@@ -60,6 +60,8 @@ public class SecurityConfig {
                                                 .permitAll()
                                                 // API 엔드포인트 중 인증 불필요한 것들
                                                 .requestMatchers("/api/users/register", "/api/users/login").permitAll()
+                                                // 테스트용 API (개발 환경에서만 사용)
+                                                .requestMatchers("/api/test/**").permitAll()
                                                 // 채팅 API 엔드포인트는 인증 필요
                                                 .requestMatchers("/api/chat/**").authenticated()
                                                 // 나머지 모든 요청은 인증 필요
