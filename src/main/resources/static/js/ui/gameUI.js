@@ -5,6 +5,7 @@ import * as ws from '../websocket/wsService.js';
 import {
     getCurrentUser,
     getCurrentRoom,
+    getCurrentRoomName,
     getCurrentGame,
     setCurrentGame,
     setGameStarted,
@@ -15,7 +16,7 @@ import {
     resetGameState
 } from '../state.js';
 import { addSystemMessage } from './chatUI.js';
-import { updateTimerDisplay, hideTimer } from './timerUI.js';
+import { updateTimerDisplay, hideTimer, showTimer } from './timerUI.js';
 import { getRoleDisplayName, getPhaseDisplayName, showElement, hideElement } from '../utils/helpers.js';
 import { GAME_PHASES } from '../config.js';
 
@@ -25,6 +26,7 @@ import { GAME_PHASES } from '../config.js';
 export function updateUserInfo() {
     const user = getCurrentUser();
     const currentRoom = getCurrentRoom();
+    const currentRoomName = getCurrentRoomName();
     const state = getState();
 
     const headerUserInfo = document.getElementById('headerUserInfo');
@@ -41,10 +43,13 @@ export function updateUserInfo() {
     if (headerUserName) headerUserName.textContent = user.nickname || user.userLoginId;
 
     if (headerCurrentRoom) {
-        if (currentRoom && state.currentRoomInfo) {
-            headerCurrentRoom.textContent = state.currentRoomInfo.roomName || currentRoom;
+        const roomName = state.currentRoomName || state.currentRoomInfo?.roomName;
+        if (currentRoom && roomName) {
+            headerCurrentRoom.textContent = roomName;
+        } else if (currentRoom) {
+            headerCurrentRoom.textContent = currentRoom;
         } else {
-            headerCurrentRoom.textContent = currentRoom || '없음';
+            headerCurrentRoom.textContent = '없음';
         }
     }
 
@@ -73,6 +78,14 @@ export function updateGameButtons() {
     // Leave room button
     if (leaveRoomBtn) {
         leaveRoomBtn.style.display = currentRoom ? 'block' : 'none';
+        // 게임 진행 중이면서 살아있는 플레이어만 비활성화 (죽은 플레이어는 활성화)
+        const shouldDisable = state.isGameStarted && !state.isPlayerDead;
+        leaveRoomBtn.disabled = shouldDisable;
+        if (shouldDisable) {
+            leaveRoomBtn.title = '게임 진행 중에는 나갈 수 없습니다';
+        } else {
+            leaveRoomBtn.title = '';
+        }
     }
 
     // Create room button
@@ -126,8 +139,10 @@ export async function startGame() {
         playerName: p.userName
     }));
 
+    const roomName = state.currentRoomInfo.roomName || state.currentRoomName || '';
+
     try {
-        const result = await api.createGame(currentRoom, players);
+        const result = await api.createGame(currentRoom, roomName, players);
 
         if (!result.success) {
             throw new Error(result.message || '게임 시작 실패');
@@ -155,6 +170,12 @@ export function updateGameUI(game) {
     // Update based on phase
     hideAllGameUI();
 
+    // 타이머 표시 및 업데이트 (게임 상태 복구 시에도 동작)
+    if (game.phaseEndTime) {
+        showTimer();
+        updateTimerDisplay(game);
+    }
+
     if (!isAlive) {
         showDeadPlayerUI();
         return;
@@ -171,7 +192,6 @@ export function updateGameUI(game) {
             showNightActionUI(game, currentPlayer);
             break;
     }
-    // Note: Timer is updated separately by handleGameStart/handlePhaseSwitch
 }
 
 /**

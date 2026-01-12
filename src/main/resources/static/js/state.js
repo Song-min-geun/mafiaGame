@@ -7,6 +7,7 @@ const AppState = {
 
     // Room state
     currentRoom: null,
+    currentRoomName: null,
     currentRoomInfo: null,
     allRooms: [],
 
@@ -47,6 +48,10 @@ export function getCurrentRoom() {
     return AppState.currentRoom;
 }
 
+export function getCurrentRoomName() {
+    return AppState.currentRoomName;
+}
+
 export function getCurrentGame() {
     return AppState.currentGame;
 }
@@ -80,11 +85,26 @@ export function setCurrentRoom(roomId) {
         localStorage.setItem('currentRoom', roomId);
     } else {
         localStorage.removeItem('currentRoom');
+        localStorage.removeItem('currentRoomName');
+        AppState.currentRoomName = null;
+    }
+}
+
+export function setCurrentRoomName(roomName) {
+    AppState.currentRoomName = roomName;
+    if (roomName) {
+        localStorage.setItem('currentRoomName', roomName);
+    } else {
+        localStorage.removeItem('currentRoomName');
     }
 }
 
 export function setCurrentRoomInfo(roomInfo) {
     AppState.currentRoomInfo = roomInfo;
+    // roomInfo가 있으면 roomName도 함께 저장
+    if (roomInfo?.roomName) {
+        setCurrentRoomName(roomInfo.roomName);
+    }
 }
 
 export function setAllRooms(rooms) {
@@ -95,11 +115,21 @@ export function setCurrentGame(game) {
     AppState.currentGame = game;
     if (game) {
         AppState.currentGameId = game.gameId;
+        localStorage.setItem('currentGameId', game.gameId);
+    } else {
+        AppState.currentGameId = null;
+        localStorage.removeItem('currentGameId');
     }
 }
 
 export function setGameStarted(started) {
     AppState.isGameStarted = started;
+    if (started) {
+        localStorage.setItem('isGameStarted', 'true');
+    } else {
+        localStorage.removeItem('isGameStarted');
+        localStorage.removeItem('currentGameId');
+    }
 }
 
 export function setStompClient(client) {
@@ -169,21 +199,23 @@ export function initFromStorage() {
         AppState.jwtToken = storedToken;
         try {
             AppState.currentUser = JSON.parse(storedUser);
-            return true;
-        } catch (e) {
-            console.error('Failed to parse stored user:', e);
-            localStorage.clear();
-        }
-    }
-    if (storedToken && storedUser) {
-        AppState.jwtToken = storedToken;
-        try {
-            AppState.currentUser = JSON.parse(storedUser);
+
             // Restore room
             const storedRoom = localStorage.getItem('currentRoom');
+            const storedRoomName = localStorage.getItem('currentRoomName');
             if (storedRoom) {
                 AppState.currentRoom = storedRoom;
+                AppState.currentRoomName = storedRoomName;
             }
+
+            // Restore game state
+            const storedGameStarted = localStorage.getItem('isGameStarted');
+            const storedGameId = localStorage.getItem('currentGameId');
+            if (storedGameStarted === 'true') {
+                AppState.isGameStarted = true;
+                AppState.currentGameId = storedGameId;
+            }
+
             return true;
         } catch (e) {
             console.error('Failed to parse stored user:', e);
@@ -192,3 +224,4 @@ export function initFromStorage() {
     }
     return false;
 }
+

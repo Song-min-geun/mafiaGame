@@ -18,13 +18,12 @@ public class GameStateRepository {
 
     // Redis Key Prefix
     private static final String KEY_PREFIX = "game:state:";
-    // TTL (게임 종료 후 자동 삭제 시간, 넉넉하게 1시간)
-    private static final Duration TTL = Duration.ofHours(1);
+    // TTL
+    private static final Duration TTL = Duration.ofMinutes(30);
 
     public void save(GameState gameState) {
         String key = KEY_PREFIX + gameState.getGameId();
         redisTemplate.opsForValue().set(key, gameState, TTL);
-        // log.debug("Saved GameState to Redis: {}", key);
     }
 
     public Optional<GameState> findById(String gameId) {
@@ -40,5 +39,29 @@ public class GameStateRepository {
     public void delete(String gameId) {
         String key = KEY_PREFIX + gameId;
         redisTemplate.delete(key);
+    }
+
+    /**
+     * 특정 플레이어가 참여 중인 게임 상태 조회
+     */
+    public Optional<GameState> findByPlayerId(String playerId) {
+        // Redis에서 모든 게임 키 조회
+        var keys = redisTemplate.keys(KEY_PREFIX + "*");
+        if (keys == null || keys.isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (String key : keys) {
+            Object result = redisTemplate.opsForValue().get(key);
+            if (result instanceof GameState gameState) {
+                // 해당 게임에 플레이어가 있는지 확인
+                boolean isPlayer = gameState.getPlayers().stream()
+                        .anyMatch(p -> p.getPlayerId().equals(playerId));
+                if (isPlayer) {
+                    return Optional.of(gameState);
+                }
+            }
+        }
+        return Optional.empty();
     }
 }

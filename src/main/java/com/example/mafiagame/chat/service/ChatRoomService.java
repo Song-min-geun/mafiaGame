@@ -136,6 +136,22 @@ public class ChatRoomService {
         if (room == null)
             return;
 
+        // 게임 진행 중이면 살아있는 플레이어는 퇴장 불가 (죽은 플레이어는 허용)
+        Game game = gameService.getGameByRoomId(roomId);
+        if (game != null) {
+            GameState gameState = gameService.getGameState(game.getGameId());
+            if (gameState != null) {
+                boolean isPlayerAlive = gameState.getPlayers().stream()
+                        .anyMatch(p -> p.getPlayerId().equals(userId) && p.isAlive());
+                if (isPlayerAlive) {
+                    log.warn("게임 진행 중 퇴장 시도 차단 (생존 플레이어): userId={}, roomId={}", userId, roomId);
+                    sendErrorMessageToUser(userId, "게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.");
+                    return;
+                }
+                log.info("죽은 플레이어 퇴장 허용: userId={}, roomId={}", userId, roomId);
+            }
+        }
+
         String leftUserName = room.removeParticipant(userId);
         if (leftUserName == null)
             return; // 방에 없는 유저가 나가는 경우
@@ -167,7 +183,24 @@ public class ChatRoomService {
         chatRooms.values().stream()
                 .filter(room -> room.isParticipant(userId))
                 .findFirst()
-                .ifPresent(room -> userLeave(room.getRoomId(), userId));
+                .ifPresent(room -> {
+                    // 게임 진행 중인 방에서는 살아있는 플레이어만 재연결 대기 (죽은 플레이어는 퇴장 처리)
+                    Game game = gameService.getGameByRoomId(room.getRoomId());
+                    if (game != null) {
+                        GameState gameState = gameService.getGameState(game.getGameId());
+                        if (gameState != null) {
+                            boolean isPlayerAlive = gameState.getPlayers().stream()
+                                    .anyMatch(p -> p.getPlayerId().equals(userId) && p.isAlive());
+                            if (isPlayerAlive) {
+                                log.info("게임 진행 중 - 재연결 대기 (생존 플레이어): userId={}, roomId={}", userId, room.getRoomId());
+                                return;
+                            }
+                            // 죽은 플레이어는 disconnect 시 퇴장 처리
+                            log.info("죽은 플레이어 disconnect - 퇴장 처리: userId={}, roomId={}", userId, room.getRoomId());
+                        }
+                    }
+                    userLeave(room.getRoomId(), userId);
+                });
     }
 
     public ChatRoom getRoom(String roomId) {

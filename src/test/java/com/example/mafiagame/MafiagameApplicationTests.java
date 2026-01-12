@@ -53,7 +53,7 @@ class MafiagameApplicationTests {
             players.add(new CreateGameRequest.PlayerData(loginId, "player" + i));
         }
 
-        CreateGameRequest request = new CreateGameRequest(roomId, players);
+        CreateGameRequest request = new CreateGameRequest(roomId, "테스트 방", players);
         Game game = gameService.createGame(request);
         String gameId = game.getGameId();
         gameService.startGame(gameId); // DAY_DISCUSSION

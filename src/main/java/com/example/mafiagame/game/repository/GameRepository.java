@@ -8,5 +8,7 @@ import java.util.Optional;
 
 @Repository
 public interface GameRepository extends JpaRepository<Game, String> {
-    Optional<Game> findByRoomIdAndStatus(String roomId, com.example.mafiagame.game.domain.GameStatus status);
+    // 가장 최근 게임 반환 (중복 방지)
+    Optional<Game> findFirstByRoomIdAndStatusOrderByStartTimeDesc(String roomId,
+            com.example.mafiagame.game.domain.GameStatus status);
 }
