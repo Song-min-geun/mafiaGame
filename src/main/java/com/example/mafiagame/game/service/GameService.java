@@ -119,6 +119,16 @@ public class GameService {
     @Transactional
     public GameState createGameStartGame(CreateGameRequest request) {
         String roomId = request.roomId();
+
+        // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
+        if (hasActiveGame(roomId)) {
+            log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
+            GameState existingGame = getActiveGameByRoomId(roomId);
+            if (existingGame != null) {
+                return existingGame;
+            }
+        }
+
         List<CreateGameRequest.PlayerData> playersData = request.players();
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
@@ -182,7 +192,7 @@ public class GameService {
         GameState updatedGameState = gameStateRepository.findById(gameId)
                 .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
 
-        messagingTemplate.convertAndSend("/topic/room/" + roomId,
+        messagingTemplate.convertAndSend("/topic/room." + roomId,
                 Map.of("type", "GAME_START", "game", updatedGameState));
         log.info("게임 생성됨: {}", gameId);
         return gameState;
@@ -716,6 +726,22 @@ public class GameService {
      */
     public GameState getGameByPlayerId(String playerId) {
         return gameStateRepository.findByPlayerId(playerId).orElse(null);
+    }
+
+    /**
+     * 해당 방에 이미 진행 중인 게임이 있는지 확인
+     */
+    public boolean hasActiveGame(String roomId) {
+        return getActiveGameByRoomId(roomId) != null;
+    }
+
+    /**
+     * 해당 방의 진행 중인 게임 상태 조회 (Redis)
+     */
+    public GameState getActiveGameByRoomId(String roomId) {
+        return gameStateRepository.findByRoomId(roomId)
+                .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
+                .orElse(null);
     }
 
     // 사용되지 않을 수 있으나 호환성 유지
