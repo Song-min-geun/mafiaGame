@@ -1,7 +1,7 @@
 package com.example.mafiagame.user.service;
 
 import org.springframework.cache.annotation.CacheEvict;
-
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -13,7 +13,11 @@ import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.jwt.RefreshTokenService;
 import com.example.mafiagame.user.domain.User;
 import static com.example.mafiagame.user.domain.UserRole.USER;
+
+import java.util.List;
+
 import com.example.mafiagame.user.dto.reponse.TokenResponse;
+import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
 import com.example.mafiagame.user.dto.request.LoginRequest;
@@ -24,7 +28,6 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-@SuppressWarnings("null") // Lombok Builder와 JPA Repository는 null 반환하지 않음
 public class UserService {
 
     private final UserRepository userRepository;
@@ -118,5 +121,10 @@ public class UserService {
                 userRepository.save(user);
             }
         }
+    }
+
+    @Transactional(readOnly = true)
+    public List<Top10UserResponse> getTopRanking() {
+        return userRepository.findTopRanking(PageRequest.of(0, 10));
     }
 }

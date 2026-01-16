@@ -176,6 +176,10 @@ export function resetGameState() {
         clearInterval(AppState.timerInterval);
         AppState.timerInterval = null;
     }
+
+    // Clear game-related localStorage
+    localStorage.removeItem('currentGameId');
+    localStorage.removeItem('isGameStarted');
 }
 
 export function resetAll() {

@@ -1,5 +1,6 @@
 package com.example.mafiagame.user.controller;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.mafiagame.global.dto.CommonResponse;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
 import com.example.mafiagame.user.dto.request.LoginRequest;
@@ -116,5 +118,11 @@ public class UserController {
                 "gameId", gameId != null ? gameId : "");
 
         return ResponseEntity.ok(CommonResponse.success(sessionData, "사용자 세션 조회 성공"));
+    }
+
+    @GetMapping("/ranking")
+    public ResponseEntity<CommonResponse<List<Top10UserResponse>>> getTopRanking() {
+        List<Top10UserResponse> top10Users = userService.getTopRanking();
+        return ResponseEntity.ok(CommonResponse.success(top10Users, "Top 10 랭킹 조회 성공"));
     }
 }
