@@ -13,6 +13,11 @@ import com.example.mafiagame.game.domain.FinalVote;
 import com.example.mafiagame.game.domain.NightAction;
 
 import com.example.mafiagame.game.dto.request.CreateGameRequest;
+import com.example.mafiagame.game.strategy.RoleActionFactory;
+import com.example.mafiagame.game.strategy.RoleActionStrategy;
+import com.example.mafiagame.game.strategy.NightActionResult;
+import com.example.mafiagame.game.state.GamePhaseFactory;
+import com.example.mafiagame.game.state.GamePhaseState;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.repository.UserRepository;
 import com.example.mafiagame.game.repository.GameRepository;
@@ -50,6 +55,8 @@ public class GameService {
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
     private final TimerService timerService;
+    private final RoleActionFactory roleActionFactory;
+    private final GamePhaseFactory gamePhaseFactory;
 
     private static final String GAME_STATE_KEY_PREFIX = "game:state:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
@@ -306,18 +313,23 @@ public class GameService {
         if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
             return;
 
-        switch (gameState.getGamePhase()) {
-            case DAY_DISCUSSION -> toPhase(gameState, GamePhase.DAY_VOTING, 30);
-            case DAY_VOTING -> processDayVoting(gameState);
-            case DAY_FINAL_DEFENSE -> toPhase(gameState, GamePhase.DAY_FINAL_VOTING, 15);
-            case DAY_FINAL_VOTING -> processFinalVoting(gameState);
-            case NIGHT_ACTION -> processNight(gameState);
-        }
+        // State Pattern: 페이즈별 상태 객체가 처리
+        GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
 
-        // 게임이 종료되었으면(상태가 IN_PROGRESS가 아니면) 저장/스케줄링 하지 않고 리턴
+        // 현재 페이즈 처리 (투표 결과, 밤 행동 등)
+        processCurrentPhase(gameState);
+
+        // 게임이 종료되었으면 리턴
         if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
             return;
         }
+
+        // 다음 상태로 전환
+        GamePhaseState nextState = currentState.nextState(gameState);
+        nextState.process(gameState);
+
+        // 페이즈 종료 시간 설정 (epoch millis)
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
 
         // 상태 변경 후 저장 및 알림
         gameStateRepository.save(gameState);
@@ -325,6 +337,16 @@ public class GameService {
 
         // 다음 페이즈 타이머 시작
         timerService.startTimer(gameId);
+    }
+
+    private void processCurrentPhase(GameState gameState) {
+        switch (gameState.getGamePhase()) {
+            case DAY_VOTING -> processDayVoting(gameState);
+            case DAY_FINAL_VOTING -> processFinalVoting(gameState);
+            case NIGHT_ACTION -> processNight(gameState);
+            default -> {
+            } // DAY_DISCUSSION, DAY_FINAL_DEFENSE는 특별한 처리 없음
+        }
     }
 
     // ... (vote, finalVote etc methods omitted) ...
@@ -623,22 +645,45 @@ public class GameService {
     }
 
     private void processNightActions(GameState gameState) {
-        Map<String, Long> mafiaVotes = gameState.getNightActions().stream()
-                .filter(action -> {
-                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
-                    return p != null && p.getRole() == PlayerRole.MAFIA;
-                })
-                .collect(Collectors.groupingBy(NightAction::getTargetId, Collectors.counting()));
+        // Strategy Pattern: 역할에 맞는 전략을 Factory에서 가져와 실행
+        List<NightActionResult> results = new ArrayList<>();
 
-        String mafiaTargetId = getTopVotedPlayers(mafiaVotes).stream().findFirst().orElse(null);
+        for (NightAction action : gameState.getNightActions()) {
+            GamePlayerState actor = findPlayerById(gameState, action.getActorId());
+            GamePlayerState target = findPlayerById(gameState, action.getTargetId());
 
-        String doctorTargetId = gameState.getNightActions().stream()
-                .filter(action -> {
-                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
-                    return p != null && p.getRole() == PlayerRole.DOCTOR;
-                })
-                .map(NightAction::getTargetId).findFirst().orElse(null);
+            if (actor == null || target == null)
+                continue;
 
+            RoleActionStrategy strategy = roleActionFactory.getStrategy(actor.getRole());
+            if (strategy != null) {
+                NightActionResult result = strategy.execute(gameState, actor, target);
+                results.add(result);
+
+                // 경찰은 즉시 결과 전송
+                if (actor.getRole() == PlayerRole.POLICE) {
+                    sendPoliceInvestigationResult(actor, target);
+                }
+            }
+        }
+
+        // 마피아 공격 결과 계산
+        String mafiaTargetId = results.stream()
+                .filter(r -> r.getActorRole() == PlayerRole.MAFIA)
+                .collect(Collectors.groupingBy(NightActionResult::getTargetId, Collectors.counting()))
+                .entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+        // 의사 보호 대상 확인
+        String doctorTargetId = results.stream()
+                .filter(r -> r.getActorRole() == PlayerRole.DOCTOR)
+                .map(NightActionResult::getTargetId)
+                .findFirst()
+                .orElse(null);
+
+        // 결과 처리
         if (mafiaTargetId != null && !mafiaTargetId.equals(doctorTargetId)) {
             findPlayerById(gameState, mafiaTargetId, killed -> {
                 killed.setAlive(false);
