@@ -7,7 +7,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @SpringBootApplication
 public class MafiaGameApplication {
-
     public static void main(String[] args) {
         SpringApplication.run(MafiaGameApplication.class, args);
     }

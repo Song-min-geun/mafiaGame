@@ -5,6 +5,7 @@ import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.PlayerRole;
 import com.example.mafiagame.game.dto.request.CreateGameRequest;
+import com.example.mafiagame.game.dto.request.SuggestionsRequestDto;
 import com.example.mafiagame.game.service.GameService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -145,15 +146,13 @@ public class GameController {
 
     /**
      * 역할과 페이즈에 따른 채팅 추천 문구 조회
-     * 예: GET /api/game/suggestions?role=MAFIA&phase=NIGHT_ACTION
      */
     @GetMapping("/suggestions")
     public ResponseEntity<?> getSuggestions(
-            @RequestParam String role,
-            @RequestParam String phase) {
+            @RequestParam SuggestionsRequestDto dto) {
         try {
-            PlayerRole playerRole = PlayerRole.valueOf(role.toUpperCase());
-            GamePhase gamePhase = GamePhase.valueOf(phase.toUpperCase());
+            PlayerRole playerRole = dto.role();
+            GamePhase gamePhase = dto.phase();
 
             List<String> suggestions = gameService.getSuggestions(playerRole, gamePhase);
 
