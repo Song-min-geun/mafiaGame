@@ -138,10 +138,10 @@ public class GameController {
 
     /**
      * 역할과 페이즈에 따른 채팅 추천 문구 조회
+     * GET /api/game/suggestions?role=MAFIA&phase=NIGHT_ACTION
      */
     @GetMapping("/suggestions")
-    public ResponseEntity<?> getSuggestions(
-            @RequestParam SuggestionsRequestDto dto) {
+    public ResponseEntity<?> getSuggestions(@ModelAttribute SuggestionsRequestDto dto) {
         try {
             PlayerRole playerRole = dto.role();
             GamePhase gamePhase = dto.phase();

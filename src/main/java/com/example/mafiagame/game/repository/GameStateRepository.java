@@ -64,4 +64,24 @@ public class GameStateRepository {
         }
         return Optional.empty();
     }
+
+    /**
+     * 특정 방의 게임 상태 조회
+     */
+    public Optional<GameState> findByRoomId(String roomId) {
+        var keys = redisTemplate.keys(KEY_PREFIX + "*");
+        if (keys == null || keys.isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (String key : keys) {
+            Object result = redisTemplate.opsForValue().get(key);
+            if (result instanceof GameState gameState) {
+                if (roomId.equals(gameState.getRoomId())) {
+                    return Optional.of(gameState);
+                }
+            }
+        }
+        return Optional.empty();
+    }
 }
