@@ -109,13 +109,9 @@ public class UserController {
     @GetMapping("/session")
     public ResponseEntity<CommonResponse<Map<String, String>>> getUserSession(Authentication authentication) {
         String userLoginId = authentication.getName();
-
-        String roomId = redisService.getUserRoomId(userLoginId);
-        String gameId = redisService.getUserGameId(userLoginId);
-
         Map<String, String> sessionData = Map.of(
-                "roomId", roomId != null ? roomId : "",
-                "gameId", gameId != null ? gameId : "");
+                "roomId", redisService.getUserRoomId(userLoginId),
+                "gameId", redisService.getUserGameId(userLoginId));
 
         return ResponseEntity.ok(CommonResponse.success(sessionData, "사용자 세션 조회 성공"));
     }
