@@ -27,7 +27,7 @@ public class User {
     @Column(unique = true, nullable = false)
     private String userLoginId;
 
-    @Column(nullable = true) // OAuth 유저는 비밀번호 없음
+    @Column(nullable = true)
     private String userLoginPassword;
 
     @Column(nullable = false)
@@ -37,13 +37,12 @@ public class User {
     @Column(nullable = false)
     private UserRole userRole;
 
-    // OAuth 관련 필드
     @Enumerated(EnumType.STRING)
     @Builder.Default
     @Column(nullable = false)
     private AuthProvider provider = AuthProvider.LOCAL;
 
-    @Column(nullable = true) // OAuth 제공자의 사용자 ID
+    @Column(nullable = true)
     private String providerId;
 
     @Builder.Default
@@ -54,8 +53,18 @@ public class User {
     @Column(nullable = false)
     private int playCount = 0;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private Double winRate = 0.0;
+
     public void updateUserLoginPassword(String userLoginPassword) {
         this.userLoginPassword = userLoginPassword;
+    }
+
+    public void updateWinRate() {
+        if (this.playCount > 0) {
+            this.winRate = (double) this.winCount / this.playCount;
+        }
     }
 
     public void incrementWinCount() {

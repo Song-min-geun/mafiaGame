@@ -28,7 +28,7 @@ public class GameState {
     private GameStatus status = GameStatus.WAITING;
 
     @Builder.Default
-    private GamePhase gamePhase = GamePhase.DAY_DISCUSSION;
+    private GamePhase gamePhase = GamePhase.NIGHT_ACTION;
 
     @Builder.Default
     private int currentPhase = 1;
