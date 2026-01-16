@@ -14,7 +14,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +48,7 @@ public class ChatRoom {
     @Builder.Default
     private int maxPlayers = 8;
 
-    @Transient
+    @Column(name = "is_playing")
     private boolean isPlaying;
 
     public ChatRoom(String roomName, String hostId, String hostName) {
@@ -146,5 +145,4 @@ public class ChatRoom {
         return this.participants.stream().anyMatch(p -> p.getUserId().equals(userId));
 
     }
-
 }

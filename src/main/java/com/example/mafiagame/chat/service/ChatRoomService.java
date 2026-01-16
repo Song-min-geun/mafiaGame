@@ -309,5 +309,4 @@ public class ChatRoomService {
             log.error("에러 메시지 전송 실패: userId={}, error: {}", userId, e.getMessage());
         }
     }
-
 }
