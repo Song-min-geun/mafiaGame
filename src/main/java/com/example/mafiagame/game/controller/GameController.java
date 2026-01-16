@@ -13,7 +13,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -27,7 +26,6 @@ import java.util.Map;
 public class GameController {
 
     private final GameService gameService;
-    private final SimpMessagingTemplate messagingTemplate;
 
     private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
         Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
@@ -39,16 +37,8 @@ public class GameController {
 
     @PostMapping("/create")
     public ResponseEntity<?> createGame(@RequestBody CreateGameRequest request) {
-        Game game = gameService.createGame(request);
-        gameService.assignRoles(game.getGameId());
-        gameService.startGame(game.getGameId());
-        log.info("game1 : {}", game);
-
-        GameState gameState = gameService.getGameState(game.getGameId());
-        messagingTemplate.convertAndSend("/topic/room." + request.roomId(),
-                Map.of("type", "GAME_START", "game", gameState));
-
-        return ResponseEntity.ok(Map.of("success", true, "gameId", game.getGameId()));
+        GameState gameState = gameService.createGameStartGame(request);
+        return ResponseEntity.ok(Map.of("success", true, "gameId", gameState.getGameId()));
     }
 
     @MessageMapping("/game.vote")
