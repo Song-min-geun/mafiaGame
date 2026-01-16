@@ -209,4 +209,40 @@ public class RedisService {
             log.warn("Redis 모든 데이터 삭제됨");
         }
     }
+
+    /**
+     * 서버 시작 시 게임 및 채팅방 데이터 초기화
+     * (사용자 세션 user_session:* 은 유지)
+     */
+    public void clearAllGameData() {
+        Set<String> keysToDelete = new HashSet<>();
+
+        // 1. 관리 집합 키 삭제
+        keysToDelete.add(ROOM_LIST_KEY);
+        keysToDelete.add(ACTIVE_GAMES_KEY);
+
+        // 2. 패턴 매칭으로 게임 및 채팅방 데이터 키 검색
+        try {
+            Set<String> gameKeys = redisTemplate.keys(GAME_PREFIX + "*");
+            if (gameKeys != null)
+                keysToDelete.addAll(gameKeys);
+
+            Set<String> chatRoomKeys = redisTemplate.keys(CHAT_ROOM_PREFIX + "*");
+            if (chatRoomKeys != null)
+                keysToDelete.addAll(chatRoomKeys);
+
+            // 주의: USER_SESSION_PREFIX 는 삭제하지 않음 (로그인 유지)
+
+        } catch (Exception e) {
+            log.error("Redis 키 검색 중 오류 발생", e);
+        }
+
+        // 3. 일괄 삭제
+        if (!keysToDelete.isEmpty()) {
+            redisTemplate.delete(keysToDelete);
+            log.info("서버 시작 초기화: Redis 게임 및 채팅방 데이터 {}개 삭제됨", keysToDelete.size());
+        } else {
+            log.info("서버 시작 초기화: 삭제할 Redis 데이터가 없습니다.");
+        }
+    }
 }
