@@ -1,7 +1,9 @@
 package com.example.mafiagame.game.controller;
 
 import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.PlayerRole;
 import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.service.GameService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -138,5 +141,36 @@ public class GameController {
         }
 
         return ResponseEntity.ok(Map.of("success", false, "message", "참여 중인 게임이 없습니다."));
+    }
+
+    /**
+     * 역할과 페이즈에 따른 채팅 추천 문구 조회
+     * 예: GET /api/game/suggestions?role=MAFIA&phase=NIGHT_ACTION
+     */
+    @GetMapping("/suggestions")
+    public ResponseEntity<?> getSuggestions(
+            @RequestParam String role,
+            @RequestParam String phase) {
+        try {
+            PlayerRole playerRole = PlayerRole.valueOf(role.toUpperCase());
+            GamePhase gamePhase = GamePhase.valueOf(phase.toUpperCase());
+
+            List<String> suggestions = gameService.getSuggestions(playerRole, gamePhase);
+
+            if (suggestions == null || suggestions.isEmpty()) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "data", List.of(),
+                        "message", "해당 역할/페이즈에 등록된 추천 문구가 없습니다."));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", suggestions));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "잘못된 역할 또는 페이즈입니다: " + e.getMessage()));
+        }
     }
 }

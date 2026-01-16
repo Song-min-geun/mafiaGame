@@ -29,6 +29,9 @@ import { hideElement, showElement } from './utils/helpers.js';
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🎮 마피아 게임 초기화 중...');
 
+    // 초기 UI 상태 설정 (로그인 전에는 헤더 정보 숨김)
+    hideElement('headerUserInfo');
+
     // OAuth 로그인 후 토큰 처리
     const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('accessToken');
@@ -52,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 hideElement('loginForm');
                 hideElement('registerForm');
                 showElement('gameScreen');
+                showElement('headerUserInfo'); // 로그인 성공 시 표시
                 await ws.connect();
                 await initializeApp();
                 return;
@@ -64,9 +68,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Try to restore session
     if (await authUI.tryRestoreSession()) {
         console.log('✅ 세션 복구 성공');
+        showElement('headerUserInfo'); // 세션 복구 성공 시 표시
         await initializeApp();
     } else {
         console.log('❌ 세션 없음 - 로그인 화면 표시');
+        hideElement('headerUserInfo'); // 세션 없으면 숨김
     }
 });
 
@@ -139,6 +145,10 @@ async function restoreFromLocalStorage() {
                 setGameStarted(true);
                 gameUI.updateGameUI(gameState);
                 chatUI.addSystemMessage('게임에 다시 연결되었습니다. (LocalStorage)');
+
+                // UI 입력창 상태 업데이트
+                const user = getCurrentUser();
+                chatUI.updateChatInputState(gameState.gamePhase, user?.role);
             } else {
                 console.log('ℹ️ [LocalStorage] 진행 중인 게임 없음 - 상태 초기화');
                 setGameStarted(false);
@@ -170,27 +180,74 @@ async function restoreFromRedis() {
             console.log('🔄 [Redis] 방 재연결:', roomId, roomName);
             await window.joinRoom(roomId);
 
+            // 현재 플레이어 역할 복구
+            const user = getCurrentUser();
+            if (user && gameState?.players) {
+                const currentPlayer = gameState.players.find(p => p.playerId === user.userLoginId);
+                if (currentPlayer && currentPlayer.role) {
+                    user.role = currentPlayer.role;
+                    setCurrentUser(user);
+                    console.log('✅ [Redis] 플레이어 역할 복구:', currentPlayer.role);
+                }
+            }
+
             // 게임 상태 복구
             setCurrentGame(gameState);
             setGameStarted(true);
             gameUI.updateGameUI(gameState);
             chatUI.addSystemMessage('게임에 다시 연결되었습니다. (Redis)');
+
+            // UI 입력창 상태 업데이트
+            chatUI.updateChatInputState(gameState.gamePhase, user?.role);
         } else {
-            console.log('ℹ️ [Redis] 진행 중인 게임 없음');
-            // 진행 중인 게임이 없으면 localStorage에서 방 정보만 복구
+            console.log('ℹ️ [Redis] 진행 중인 게임 없음 - 로컬 상태 초기화');
+            // 서버에 게임이 없으므로 로컬 게임 상태도 확실히 제거
+            setGameStarted(false);
+            setCurrentGame(null);
+
+            // 방 정보만 복구 (방이 존재하는지 확인 후 접속)
             const currentRoom = getCurrentRoom();
             if (currentRoom) {
-                console.log('🔄 [Redis] 이전 방 접속 복구:', currentRoom);
-                await window.joinRoom(currentRoom);
+                console.log('🔄 [Redis] 이전 방 접속 시도:', currentRoom);
+                try {
+                    // 방 존재 여부 확인
+                    const roomInfo = await api.fetchRoomDetails(currentRoom);
+                    if (roomInfo && roomInfo.success) {
+                        await window.joinRoom(currentRoom);
+                    } else {
+                        throw new Error('Room not found');
+                    }
+                } catch (e) {
+                    console.log('⚠️ [Redis] 이전 방이 존재하지 않음 - 정보 삭제:', currentRoom);
+                    setCurrentRoom(null);
+                    setCurrentRoomName(null);
+                    setCurrentRoomInfo(null);
+                }
             }
         }
     } catch (error) {
         console.error('[Redis] 게임 상태 확인 실패:', error);
-        // 에러 발생 시 localStorage 기반 복구 시도
+        // 에러 발생 시에도 게임 상태는 초기화
+        setGameStarted(false);
+        setCurrentGame(null);
+
         const currentRoom = getCurrentRoom();
         if (currentRoom) {
-            console.log('🔄 [Redis] fallback - localStorage 방 복구:', currentRoom);
-            await window.joinRoom(currentRoom);
+            console.log('🔄 [Redis] 방 접속 복구 시도:', currentRoom);
+            try {
+                // 방 존재 여부 확인
+                const roomInfo = await api.fetchRoomDetails(currentRoom);
+                if (roomInfo && roomInfo.success) {
+                    await window.joinRoom(currentRoom);
+                } else {
+                    throw new Error('Room not found');
+                }
+            } catch (e) {
+                console.log('⚠️ [Redis] 이전 방이 존재하지 않음 (에러) - 정보 삭제:', currentRoom);
+                setCurrentRoom(null);
+                setCurrentRoomName(null);
+                setCurrentRoomInfo(null);
+            }
         }
     }
 }
@@ -211,6 +268,11 @@ function handlePrivateMessage(message) {
             }
             gameUI.updateUserInfo();
             chatUI.addSystemMessage(`당신의 역할: ${message.role} - ${message.roleDescription}`);
+            break;
+
+        case 'MAFIA_CHAT':
+            // 마피아 채팅 (Private Queue로 수신)
+            chatUI.processIncomingMessage(message);
             break;
 
         case 'PRIVATE_MESSAGE':
@@ -260,11 +322,14 @@ function handleRoomMessage(chatMessage) {
                 return;
             }
             gameUI.handleGameStart(chatMessage.game);
+            // 게임 시작 시 Phase 업데이트에 따라 입력창 검사
+            chatUI.updateChatInputState(chatMessage.game.gamePhase, user?.role);
             break;
 
         case MESSAGE_TYPES.PHASE_SWITCHED:
             if (chatMessage.game?.gameId === state.currentGameId) {
                 gameUI.handlePhaseSwitch(chatMessage.game);
+                chatUI.updateChatInputState(chatMessage.game.gamePhase, user?.role);
             }
             break;
 
@@ -274,6 +339,8 @@ function handleRoomMessage(chatMessage) {
 
         case MESSAGE_TYPES.GAME_ENDED:
             gameUI.handleGameEnd(chatMessage.winner);
+            // 게임 종료 시 입력창 활성화
+            chatUI.updateChatInputState('GAME_END', user?.role);
             break;
 
         case MESSAGE_TYPES.VOTE_RESULT_UPDATE:
@@ -338,12 +405,16 @@ function handleRoomMessage(chatMessage) {
 window.login = async function () {
     const success = await authUI.handleLogin();
     if (success) {
+        showElement('headerUserInfo'); // 로그인 성공 시 헤더 표시
         await initializeApp();
     }
 };
 
 window.register = authUI.handleRegister;
-window.logout = authUI.handleLogout;
+window.logout = function () {
+    authUI.handleLogout();
+    hideElement('headerUserInfo'); // 로그아웃 시 헤더 숨김
+};
 window.showLogin = authUI.showLoginForm;
 window.showRegister = authUI.showRegisterForm;
 window.checkPasswordMatch = authUI.checkPasswordMatch;

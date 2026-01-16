@@ -7,7 +7,8 @@ export const API_ENDPOINTS = {
     ROOMS: '/api/chat/rooms',
     GAME_CREATE: '/api/game/create',
     GAME_UPDATE_TIME: '/api/game/update-time',
-    GAME_STATE: '/api/game/state'
+    GAME_STATE: '/api/game/state',
+    GAME_SUGGESTIONS: '/api/game/suggestions'
 };
 
 export const WS_TOPICS = {

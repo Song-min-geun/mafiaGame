@@ -190,3 +190,18 @@ export async function fetchGameState(roomId) {
     return result.success ? result.data : null;
 }
 
+/**
+ * Fetch chat suggestions for role and phase
+ */
+export async function fetchSuggestions(role, phase) {
+    const response = await apiRequest(
+        `${API_ENDPOINTS.GAME_SUGGESTIONS}?role=${role}&phase=${phase}`
+    );
+
+    if (!response.ok) {
+        return [];
+    }
+
+    const result = await response.json();
+    return result.success ? result.data : [];
+}
