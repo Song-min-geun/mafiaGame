@@ -17,6 +17,7 @@ import {
 } from '../state.js';
 import { addSystemMessage } from './chatUI.js';
 import { updateTimerDisplay, hideTimer, showTimer } from './timerUI.js';
+import { updateSuggestionsForPhase, clearSuggestions } from './suggestionsUI.js';
 import { getRoleDisplayName, getPhaseDisplayName, showElement, hideElement } from '../utils/helpers.js';
 import { GAME_PHASES } from '../config.js';
 
@@ -175,6 +176,9 @@ export function updateGameUI(game) {
         showTimer();
         updateTimerDisplay(game);
     }
+
+    // 추천 문구 업데이트
+    updateSuggestionsForPhase(game);
 
     if (!isAlive) {
         showDeadPlayerUI();
@@ -444,6 +448,7 @@ export function handleGameEnd(winner) {
 
     hideAllGameUI();
     hideTimer();
+    clearSuggestions();
     resetGameState();
     updateGameButtons();
 }

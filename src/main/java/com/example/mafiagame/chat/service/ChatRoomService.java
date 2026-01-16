@@ -10,6 +10,7 @@ import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.service.UserService;
+import com.example.mafiagame.game.domain.PlayerRole;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -47,6 +48,31 @@ public class ChatRoomService {
         if (!canPlayerChat(chatMessage.getRoomId(), senderId)) {
             sendErrorMessageToUser(senderId, "지금은 채팅을 할 수 없습니다.");
             return;
+        }
+
+        // 게임 진행 상태 확인 (밤 페이즈 마피아 채팅 분기)
+        Game game = gameService.getGameByRoomId(chatMessage.getRoomId());
+        if (game != null) {
+            GameState gameState = gameService.getGameState(game.getGameId());
+            if (gameState != null && gameState.getGamePhase() == GamePhase.NIGHT_ACTION) {
+                // 이미 canPlayerChat에서 마피아 여부는 확인됨 (마피아만 통과)
+
+                // 메시지 타입을 MAFIA_CHAT으로 변경
+                chatMessage.setType(MessageType.MAFIA_CHAT);
+
+                // 생존한 마피아들에게만 개별 전송
+                gameState.getPlayers().stream()
+                        .filter(p -> p.getRole() == PlayerRole.MAFIA && p.isAlive())
+                        .forEach(mafia -> {
+                            try {
+                                messagingTemplate.convertAndSendToUser(mafia.getPlayerId(), "/queue/private",
+                                        chatMessage);
+                            } catch (Exception e) {
+                                log.error("마피아 채팅 전송 실패: to {}", mafia.getPlayerId(), e);
+                            }
+                        });
+                return; // 브로드캐스트 하지 않음
+            }
         }
 
         messagingTemplate.convertAndSend("/topic/room." + chatMessage.getRoomId(), chatMessage);
@@ -249,6 +275,11 @@ public class ChatRoomService {
             return playerId.equals(gameState.getVotedPlayerId());
         }
 
+        // 5. 밤 페이즈 (마피아만 대화 가능)
+        if (gameState.getGamePhase() == GamePhase.NIGHT_ACTION) {
+            return player.getRole() == PlayerRole.MAFIA;
+        }
+
         return true;
     }
 
@@ -278,4 +309,5 @@ public class ChatRoomService {
             log.error("에러 메시지 전송 실패: userId={}, error: {}", userId, e.getMessage());
         }
     }
+
 }

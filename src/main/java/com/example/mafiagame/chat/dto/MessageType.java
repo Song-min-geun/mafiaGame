@@ -11,5 +11,6 @@ public enum MessageType {
     PHASE_CHANGE,
     VOTE,
     ROLE_ASSIGN,
-    GAME_RESULT
+    GAME_RESULT,
+    MAFIA_CHAT
 }
