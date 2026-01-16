@@ -21,6 +21,15 @@ export function addMessage(chatMessage, messageType = 'other') {
         messageDiv.innerHTML = `
             <div class="system-message">${content}</div>
         `;
+    } else if (messageType.includes('mafia')) {
+        // Mafia chat styling
+        messageDiv.innerHTML = `
+            <div class="message-header">
+                <span class="sender-name">🕵️ ${senderName}</span>
+                <span class="message-time">${timestamp}</span>
+            </div>
+            <div class="message-content">${content}</div>
+        `;
     } else {
         messageDiv.innerHTML = `
             <div class="message-header">
@@ -81,6 +90,7 @@ export function handleKeyPress(event, sendFunction) {
 
 /**
  * Process incoming chat message
+ * (Used by app.js or directly)
  */
 export function processIncomingMessage(chatMessage) {
     const user = getCurrentUser();
@@ -89,6 +99,11 @@ export function processIncomingMessage(chatMessage) {
         case 'CHAT':
             const messageType = chatMessage.senderId === user?.userLoginId ? 'self' : 'other';
             addMessage(chatMessage, messageType);
+            break;
+
+        case 'MAFIA_CHAT':
+            const mafiaType = chatMessage.senderId === user?.userLoginId ? 'self mafia' : 'mafia';
+            addMessage(chatMessage, mafiaType);
             break;
 
         case 'SYSTEM':
@@ -103,5 +118,31 @@ export function processIncomingMessage(chatMessage) {
             if (chatMessage.senderId === 'SYSTEM') {
                 addMessage(chatMessage, 'system');
             }
+    }
+}
+
+/**
+ * Update chat input state based on game phase and role
+ */
+export function updateChatInputState(phase, role) {
+    const input = document.getElementById('messageInput');
+    const btn = document.querySelector('.chat-input button');
+
+    if (!input || !btn) return;
+
+    if (phase === 'NIGHT_ACTION') {
+        if (role === 'MAFIA') {
+            input.disabled = false;
+            input.placeholder = '🕵️ 마피아에게 메시지 보내기...';
+            btn.disabled = false;
+        } else {
+            input.disabled = true;
+            input.placeholder = '🤫 밤에는 대화할 수 없습니다...';
+            btn.disabled = true;
+        }
+    } else {
+        input.disabled = false;
+        input.placeholder = '메시지를 입력하세요...';
+        btn.disabled = false;
     }
 }
