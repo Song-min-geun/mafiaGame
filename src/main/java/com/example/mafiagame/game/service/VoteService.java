@@ -2,7 +2,6 @@ package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.FinalVote;
 import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GamePlayerState;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.Vote;
 import lombok.RequiredArgsConstructor;
