@@ -23,6 +23,7 @@ export async function handleLogin() {
         hideElement('loginForm');
         hideElement('registerForm');
         showElement('gameScreen');
+        showElement('headerUserInfo');
 
         // Connect WebSocket
         await ws.connect();
@@ -73,6 +74,7 @@ export function handleLogout() {
     resetAll();
 
     hideElement('gameScreen');
+    hideElement('headerUserInfo');
     showElement('loginForm');
 
     // Clear input fields
