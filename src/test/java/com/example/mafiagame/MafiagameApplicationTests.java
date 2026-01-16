@@ -54,8 +54,8 @@ class MafiagameApplicationTests {
         }
 
         CreateGameRequest request = new CreateGameRequest(roomId, "테스트 방", players);
-        Game game = gameService.createGame(request);
-        String gameId = game.getGameId();
+        GameState gameState = gameService.createGameStartGame(request);
+        String gameId = gameState.getGameId();
         gameService.startGame(gameId); // DAY_DISCUSSION
         gameService.advancePhase(gameId); // DAY_VOTING (투표 가능 상태로 변경)
 
