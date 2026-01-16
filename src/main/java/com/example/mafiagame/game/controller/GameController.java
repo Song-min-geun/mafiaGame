@@ -7,6 +7,7 @@ import com.example.mafiagame.game.domain.PlayerRole;
 import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.dto.request.SuggestionsRequestDto;
 import com.example.mafiagame.game.service.GameService;
+import com.example.mafiagame.game.service.SuggestionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class GameController {
 
     private final GameService gameService;
+    private final SuggestionService suggestionService;
 
     private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
         Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
@@ -144,7 +146,7 @@ public class GameController {
             PlayerRole playerRole = dto.role();
             GamePhase gamePhase = dto.phase();
 
-            List<String> suggestions = gameService.getSuggestions(playerRole, gamePhase);
+            List<String> suggestions = suggestionService.getSuggestions(playerRole, gamePhase);
 
             if (suggestions == null || suggestions.isEmpty()) {
                 return ResponseEntity.ok(Map.of(
