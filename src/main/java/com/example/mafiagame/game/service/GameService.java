@@ -12,7 +12,9 @@ import com.example.mafiagame.game.domain.Vote;
 import com.example.mafiagame.game.domain.FinalVote;
 import com.example.mafiagame.game.domain.NightAction;
 
-import com.example.mafiagame.game.dto.request.CreateGameRequest;
+import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.domain.ChatUser;
+import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.strategy.RoleActionFactory;
 import com.example.mafiagame.game.strategy.RoleActionStrategy;
 import com.example.mafiagame.game.strategy.NightActionResult;
@@ -48,6 +50,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GameService {
 
+    private final SuggestionService suggestionService;
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
@@ -57,6 +60,7 @@ public class GameService {
     private final TimerService timerService;
     private final RoleActionFactory roleActionFactory;
     private final GamePhaseFactory gamePhaseFactory;
+    private final ChatRoomService chatRoomService;
 
     private static final String GAME_STATE_KEY_PREFIX = "game:state:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
@@ -117,9 +121,7 @@ public class GameService {
             """;
 
     @Transactional
-    public GameState createGameStartGame(CreateGameRequest request) {
-        String roomId = request.roomId();
-
+    public GameState createGame(String roomId) {
         // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
         if (hasActiveGame(roomId)) {
             log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
@@ -129,12 +131,21 @@ public class GameService {
             }
         }
 
-        List<CreateGameRequest.PlayerData> playersData = request.players();
+        // ChatRoom에서 플레이어 정보 가져오기
+        ChatRoom chatRoom = chatRoomService.getRoom(roomId);
+        if (chatRoom == null) {
+            throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
+        }
+
+        List<ChatUser> participants = chatRoom.getParticipants();
+        if (participants.size() < 4) {
+            throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다.");
+        }
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
 
-        List<String> playerIds = playersData.stream()
-                .map(CreateGameRequest.PlayerData::playerId)
+        List<String> playerIds = participants.stream()
+                .map(ChatUser::getUserId)
                 .toList();
         Map<String, User> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
                 .stream()
@@ -148,10 +159,10 @@ public class GameService {
                 .startTime(LocalDateTime.now())
                 .build();
 
-        List<GamePlayer> dbPlayers = playersData.stream().map(pData -> {
-            User user = userMap.get(pData.playerId());
+        List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
+            User user = userMap.get(participant.getUserId());
             if (user == null) {
-                throw new RuntimeException("User not found: " + pData.playerId());
+                throw new RuntimeException("User not found: " + participant.getUserId());
             }
             return GamePlayer.builder()
                     .game(game)
@@ -167,12 +178,12 @@ public class GameService {
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId(roomId)
-                .roomName(request.roomName())
+                .roomName(chatRoom.getRoomName())
                 .status(GameStatus.IN_PROGRESS)
                 .gamePhase(GamePhase.NIGHT_ACTION)
                 .currentPhase(0)
-                .players(playersData.stream().map(pData -> {
-                    User user = userMap.get(pData.playerId());
+                .players(participants.stream().map(participant -> {
+                    User user = userMap.get(participant.getUserId());
                     return GamePlayerState.builder()
                             .playerId(user.getUserLoginId())
                             .playerName(user.getNickname())
@@ -255,6 +266,10 @@ public class GameService {
         // 1. Redis 상태 업데이트
         gameState.setStatus(GameStatus.IN_PROGRESS);
         toNextDayPhase(gameState); // 1일차 낮 시작 및 저장됨
+
+        // [AI] 첫 페이즈 추천 문구 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
+        // suggestionService.generateAiSuggestionsAsync(gameId,
+        // GamePhase.DAY_DISCUSSION);
 
         // 2. 타이머 시작
         timerService.startTimer(gameId);
@@ -344,6 +359,10 @@ public class GameService {
         // 상태 변경 후 저장 및 알림
         gameStateRepository.save(gameState);
         sendPhaseSwitchMessage(gameState);
+
+        // [AI] 다음 페이즈 문구 미리 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
+        // suggestionService.generateAiSuggestionsAsync(gameId,
+        // currentState.nextState(gameState).getGamePhase());
 
         // 다음 페이즈 타이머 시작
         timerService.startTimer(gameId);
