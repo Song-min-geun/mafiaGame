@@ -26,4 +26,9 @@ public interface GamePhaseState {
      * @return 다음 상태
      */
     GamePhaseState nextState(GameState gameState);
+
+    /**
+     * 현재 페이즈 종류 반환
+     */
+    com.example.mafiagame.game.domain.GamePhase getGamePhase();
 }

@@ -70,7 +70,6 @@ public class ConcurrencyComparisonTest {
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId("test-room")
-                .roomName("테스트 방")
                 .status(GameStatus.IN_PROGRESS)
                 .gamePhase(GamePhase.DAY_VOTING)
                 .currentPhase(1)

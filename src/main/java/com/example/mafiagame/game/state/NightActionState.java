@@ -28,4 +28,9 @@ public class NightActionState implements GamePhaseState {
         gameState.setCurrentPhase(gameState.getCurrentPhase() + 1);
         return new DayDiscussionState();
     }
+
+    @Override
+    public GamePhase getGamePhase() {
+        return GamePhase.NIGHT_ACTION;
+    }
 }

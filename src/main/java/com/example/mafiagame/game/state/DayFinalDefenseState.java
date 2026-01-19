@@ -26,4 +26,9 @@ public class DayFinalDefenseState implements GamePhaseState {
     public GamePhaseState nextState(GameState gameState) {
         return new DayFinalVotingState();
     }
+
+    @Override
+    public GamePhase getGamePhase() {
+        return GamePhase.DAY_FINAL_DEFENSE;
+    }
 }

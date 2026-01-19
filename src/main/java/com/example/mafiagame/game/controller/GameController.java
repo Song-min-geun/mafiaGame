@@ -4,8 +4,7 @@ import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.PlayerRole;
-import com.example.mafiagame.game.dto.request.CreateGameRequest;
-import com.example.mafiagame.game.dto.request.SuggestionsRequestDto;
+
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.SuggestionService;
 import lombok.RequiredArgsConstructor;
@@ -38,8 +37,9 @@ public class GameController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<?> createGame(@RequestBody CreateGameRequest request) {
-        GameState gameState = gameService.createGameStartGame(request);
+    public ResponseEntity<?> createGame(@RequestBody Map<String, String> request) {
+        String roomId = request.get("roomId");
+        GameState gameState = gameService.createGame(roomId);
         return ResponseEntity.ok(Map.of("success", true, "gameId", gameState.getGameId()));
     }
 
@@ -129,8 +129,7 @@ public class GameController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", gameState,
-                    "roomId", gameState.getRoomId(),
-                    "roomName", gameState.getRoomName() != null ? gameState.getRoomName() : ""));
+                    "roomId", gameState.getRoomId()));
         }
 
         return ResponseEntity.ok(Map.of("success", false, "message", "참여 중인 게임이 없습니다."));
@@ -141,12 +140,14 @@ public class GameController {
      * GET /api/game/suggestions?role=MAFIA&phase=NIGHT_ACTION
      */
     @GetMapping("/suggestions")
-    public ResponseEntity<?> getSuggestions(@ModelAttribute SuggestionsRequestDto dto) {
+    public ResponseEntity<?> getSuggestions(
+            @RequestParam("role") PlayerRole role,
+            @RequestParam("phase") GamePhase phase,
+            @RequestParam(value = "gameId", required = false) String gameId) {
         try {
-            PlayerRole playerRole = dto.role();
-            GamePhase gamePhase = dto.phase();
-
-            List<String> suggestions = suggestionService.getSuggestions(playerRole, gamePhase);
+            log.info("getSuggestions 요청: role={}, phase={}, gameId={}", role, phase, gameId);
+            List<String> suggestions = suggestionService.getSuggestions(role, phase, gameId);
+            log.info("getSuggestions 결과: 개수={}", suggestions != null ? suggestions.size() : 0);
 
             if (suggestions == null || suggestions.isEmpty()) {
                 return ResponseEntity.ok(Map.of(

@@ -30,4 +30,9 @@ public class DayVotingState implements GamePhaseState {
         }
         return new NightActionState();
     }
+
+    @Override
+    public GamePhase getGamePhase() {
+        return GamePhase.DAY_VOTING;
+    }
 }

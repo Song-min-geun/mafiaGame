@@ -26,4 +26,9 @@ public class DayDiscussionState implements GamePhaseState {
     public GamePhaseState nextState(GameState gameState) {
         return new DayVotingState();
     }
+
+    @Override
+    public GamePhase getGamePhase() {
+        return GamePhase.DAY_DISCUSSION;
+    }
 }
