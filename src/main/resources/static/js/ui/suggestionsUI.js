@@ -9,14 +9,14 @@ let currentSuggestions = [];
 /**
  * 현재 사용자의 역할과 게임 페이즈에 맞는 추천 문구 로드
  */
-export async function loadSuggestions(role, phase) {
+export async function loadSuggestions(role, phase, gameId) {
     if (!role || !phase) {
         hideSuggestions();
         return;
     }
 
     try {
-        const suggestions = await api.fetchSuggestions(role, phase);
+        const suggestions = await api.fetchSuggestions(role, phase, gameId);
         currentSuggestions = suggestions || [];
 
         if (currentSuggestions.length > 0) {
@@ -32,7 +32,7 @@ export async function loadSuggestions(role, phase) {
 }
 
 /**
- * 추천 문구 버튼 렌더링
+ * 추천 문구 렌더링
  */
 function renderSuggestions(suggestions) {
     const container = document.getElementById('suggestionsContainer');
@@ -44,39 +44,39 @@ function renderSuggestions(suggestions) {
         const button = document.createElement('button');
         button.className = 'suggestion-btn';
         button.textContent = text;
-        button.onclick = () => selectSuggestion(text);
+        button.onclick = () => handleSuggestionClick(text);
         container.appendChild(button);
     });
 }
 
 /**
- * 추천 문구 선택 시 채팅 입력창에 삽입
- */
-function selectSuggestion(text) {
-    const input = document.getElementById('messageInput');
-    if (input) {
-        input.value = text;
-        input.focus();
-    }
-}
-
-/**
  * 추천 문구 영역 표시
  */
-export function showSuggestions() {
+function showSuggestions() {
     const area = document.getElementById('suggestionsArea');
     if (area) {
-        area.style.display = 'flex';
+        area.style.display = 'block';
     }
 }
 
 /**
- * 추천 문구 영역 숨기기
+ * 추천 문구 영역 숨김
  */
-export function hideSuggestions() {
+function hideSuggestions() {
     const area = document.getElementById('suggestionsArea');
     if (area) {
         area.style.display = 'none';
+    }
+}
+
+/**
+ * 추천 문구 클릭 처리
+ */
+function handleSuggestionClick(text) {
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.value = text;
+        messageInput.focus();
     }
 }
 
@@ -99,8 +99,9 @@ export async function updateSuggestionsForPhase(game) {
 
     const role = currentPlayer.role;
     const phase = game.gamePhase;
+    const gameId = game.gameId;
 
-    await loadSuggestions(role, phase);
+    await loadSuggestions(role, phase, gameId);
 }
 
 /**
