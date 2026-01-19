@@ -52,4 +52,16 @@ public class Game {
     @OneToMany(mappedBy = "game", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<GamePlayer> players = new ArrayList<>();
+
+    /**
+     * 새 게임 생성 - gameId, status, startTime 자동 설정
+     */
+    public static Game createNew(String roomId) {
+        return Game.builder()
+                .gameId("game_" + System.currentTimeMillis() + "_" + new java.util.Random().nextInt(1000))
+                .roomId(roomId)
+                .status(GameStatus.IN_PROGRESS)
+                .startTime(LocalDateTime.now())
+                .build();
+    }
 }

@@ -1,8 +1,8 @@
 package com.example.mafiagame;
 
-import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.domain.GameState;
-import com.example.mafiagame.game.dto.request.CreateGameRequest;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.domain.UserRole;
@@ -13,8 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import java.util.concurrent.ExecutorService;
@@ -31,16 +29,31 @@ class MafiagameApplicationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ChatRoomService chatRoomService;
+
     @Test
     @DisplayName("동시성 이슈 재현: 100명이 동시에 투표하면 투표가 누락된다.")
     void concurrencyVoteTest() throws InterruptedException {
         // 1. 게임 방 생성 및 유저 준비
-        String roomId = "test-room";
-
-        List<CreateGameRequest.PlayerData> players = new ArrayList<>();
         int threadCount = 100;
 
-        for (int i = 0; i < threadCount; i++) {
+        // 첫 번째 유저를 방장으로 생성
+        String hostLoginId = "user0";
+        User host = User.builder()
+                .userLoginId(hostLoginId)
+                .nickname("player0")
+                .userLoginPassword("pw")
+                .userRole(UserRole.USER)
+                .build();
+        userRepository.save(host);
+
+        // 채팅방 생성 (방장이 생성)
+        ChatRoom chatRoom = chatRoomService.createRoom("test-room", hostLoginId);
+        String roomId = chatRoom.getRoomId();
+
+        // 나머지 유저 생성 및 채팅방 참여
+        for (int i = 1; i < threadCount; i++) {
             String loginId = "user" + i;
             User user = User.builder()
                     .userLoginId(loginId)
@@ -50,12 +63,12 @@ class MafiagameApplicationTests {
                     .build();
             userRepository.save(user);
 
-            players.add(new CreateGameRequest.PlayerData(loginId, "player" + i));
+            chatRoomService.userJoin(roomId, loginId);
         }
 
-        CreateGameRequest request = new CreateGameRequest(roomId, "테스트 방", players);
-        Game game = gameService.createGame(request);
-        String gameId = game.getGameId();
+        // 게임 시작 (이제 roomId만 전달)
+        GameState gameState = gameService.createGame(roomId);
+        String gameId = gameState.getGameId();
         gameService.startGame(gameId); // DAY_DISCUSSION
         gameService.advancePhase(gameId); // DAY_VOTING (투표 가능 상태로 변경)
 

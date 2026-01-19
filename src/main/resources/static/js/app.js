@@ -18,6 +18,7 @@ import {
 } from './state.js';
 import * as api from './api/apiService.js';
 import * as ws from './websocket/wsService.js';
+import * as suggestionsUI from './ui/suggestionsUI.js';
 import * as authUI from './ui/authUI.js';
 import * as roomUI from './ui/roomUI.js';
 import * as chatUI from './ui/chatUI.js';
@@ -277,6 +278,32 @@ function handlePrivateMessage(message) {
 
         case 'PRIVATE_MESSAGE':
             chatUI.addSystemMessage(message.content);
+            break;
+
+        case 'AI_SUGGESTION':
+            console.log('🤖 AI 추천 수신:', message.suggestions);
+            if (message.suggestions && Array.isArray(message.suggestions)) {
+                // suggestionsUI.loadSuggestions used to be called, but we have data now.
+                // But suggestionsUI doesn't export a setter.
+                // Hack: Call updateSuggestionsForPhase? No, that fetches.
+                // Correct way: Add 'renderSuggestions' to exports in suggestionsUI.js.
+                // FOR NOW: Just call loadSuggestions with role/phase/gameId from current state?
+                // But message doesn't have gameId/phase/role explicitly in payload (only suggestions).
+                // So, simpler: Use suggestionsUI.callRender(suggestions) -> Need to implement.
+                // Or: just force refresh via updateSuggestionsForPhase(getCurrentGame())
+                const game = getState().currentGame;
+                if (game) {
+                    api.fetchSuggestions(game.players.find(p => p.playerId === getCurrentUser().userLoginId).role, game.gamePhase, game.gameId)
+                        .then(data => {
+                            // wait, fetchSuggestions returns the data.
+                            // I need to use suggestionsUI to render it.
+                            // suggestionsUI.loadSuggestions calls API and renders.
+                            // So calling loadSuggestions is enough!
+                            const user = getCurrentUser();
+                            suggestionsUI.loadSuggestions(user.role, game.gamePhase, game.gameId);
+                        });
+                }
+            }
             break;
 
         case 'ERROR':

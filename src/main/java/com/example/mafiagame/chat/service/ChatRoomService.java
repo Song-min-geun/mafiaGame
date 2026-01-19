@@ -15,7 +15,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
+import com.example.mafiagame.game.service.SuggestionService;
+import com.example.mafiagame.game.repository.GameStateRepository;
 import org.springframework.context.ApplicationContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,10 +36,20 @@ public class ChatRoomService {
     private final GameService gameService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ApplicationContext applicationContext;
+    private final SuggestionService suggestionService;
+    private final GameStateRepository gameStateRepository;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    private static final String CHAT_LOG_PREFIX = "chat:logs:";
+    private static final int MAX_CHAT_LOGS = 20;
+    private static final int AI_GENERATION_MSG_COUNT = 10; // 10개 메시지마다 AI 생성
+
+    // 메시지 버퍼: roomId -> List<logEntry>
+    private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
+    private final Map<String, Integer> messageCounters = new ConcurrentHashMap<>();
 
     // ================== 메시지 처리 (핵심 로직) ================== //
 
-    //
     public void processAndBroadcastMessage(ChatMessage chatMessage, String senderId) {
         User sender = userService.getUserByLoginId(senderId);
 
@@ -76,6 +89,70 @@ public class ChatRoomService {
         }
 
         messagingTemplate.convertAndSend("/topic/room." + chatMessage.getRoomId(), chatMessage);
+
+        // 채팅 로그 버퍼에 추가 (10개 모이면 Redis에 일괄 저장 + AI 호출)
+        bufferAndFlushChatLog(chatMessage.getRoomId(), chatMessage.getSenderName(), chatMessage.getContent());
+    }
+
+    /**
+     * 채팅 로그를 메모리 버퍼에 추가하고, 10개가 되면 Redis에 일괄 저장
+     */
+    private void bufferAndFlushChatLog(String roomId, String senderName, String content) {
+        String logEntry = senderName + ": " + content;
+
+        // 버퍼에 추가
+        chatLogBuffer.computeIfAbsent(roomId, k -> new java.util.ArrayList<>()).add(logEntry);
+        int count = messageCounters.merge(roomId, 1, Integer::sum);
+
+        // 10개 모이면 Redis에 일괄 저장 후 AI 호출
+        if (count >= AI_GENERATION_MSG_COUNT) {
+            flushChatLogBuffer(roomId);
+        }
+    }
+
+    /**
+     * 버퍼의 채팅 로그를 Redis에 일괄 저장하고 AI 추천 갱신 트리거
+     */
+    private synchronized void flushChatLogBuffer(String roomId) {
+        List<String> buffer = chatLogBuffer.remove(roomId);
+        messageCounters.remove(roomId);
+
+        if (buffer == null || buffer.isEmpty())
+            return;
+
+        String key = CHAT_LOG_PREFIX + roomId;
+        try {
+            // 일괄 저장 (rightPushAll)
+            stringRedisTemplate.opsForList().rightPushAll(key, buffer);
+            // 최근 20개만 유지
+            stringRedisTemplate.opsForList().trim(key, -MAX_CHAT_LOGS, -1);
+            log.info("채팅 로그 일괄 저장 완료: roomId={}, count={}", roomId, buffer.size());
+        } catch (Exception e) {
+            log.error("Redis 채팅 로그 저장 실패: roomId={}", roomId, e);
+        }
+
+        // AI 추천 갱신 트리거
+        triggerAiSuggestionUpdate(roomId);
+    }
+
+    private void triggerAiSuggestionUpdate(String roomId) {
+        // roomId로 GameState 조회하여 gameId와 phase 획득
+        gameStateRepository.findByRoomId(roomId).ifPresent(gameState -> {
+            // 현재 페이즈가 토론이나 투표 등 대화가 중요한 페이즈인지 확인 (선택사항)
+            if (gameState.getGamePhase() == GamePhase.DAY_DISCUSSION ||
+                    gameState.getGamePhase() == GamePhase.NIGHT_ACTION) {
+                suggestionService.generateAiSuggestionsAsync(gameState.getGameId(), gameState.getGamePhase());
+            }
+        });
+    }
+
+    /**
+     * 최근 채팅 로그 조회 (AI 분석용)
+     */
+    public List<String> getRecentChatLogs(String roomId) {
+        String key = CHAT_LOG_PREFIX + roomId;
+        List<String> logs = stringRedisTemplate.opsForList().range(key, 0, -1);
+        return logs != null ? logs : List.of();
     }
 
     public void processAndPrivateMessage(ChatMessage chatMessage, String senderId) {
@@ -309,5 +386,4 @@ public class ChatRoomService {
             log.error("에러 메시지 전송 실패: userId={}, error: {}", userId, e.getMessage());
         }
     }
-
 }

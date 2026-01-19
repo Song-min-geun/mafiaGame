@@ -4,16 +4,15 @@ import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.PlayerRole;
-import com.example.mafiagame.game.dto.request.CreateGameRequest;
-import com.example.mafiagame.game.dto.request.SuggestionsRequestDto;
+
 import com.example.mafiagame.game.service.GameService;
+import com.example.mafiagame.game.service.SuggestionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -27,7 +26,7 @@ import java.util.Map;
 public class GameController {
 
     private final GameService gameService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final SuggestionService suggestionService;
 
     private Principal getPrincipal(SimpMessageHeaderAccessor accessor) {
         Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
@@ -38,17 +37,10 @@ public class GameController {
     }
 
     @PostMapping("/create")
-    public ResponseEntity<?> createGame(@RequestBody CreateGameRequest request) {
-        Game game = gameService.createGame(request);
-        gameService.assignRoles(game.getGameId());
-        gameService.startGame(game.getGameId());
-        log.info("game1 : {}", game);
-
-        GameState gameState = gameService.getGameState(game.getGameId());
-        messagingTemplate.convertAndSend("/topic/room." + request.roomId(),
-                Map.of("type", "GAME_START", "game", gameState));
-
-        return ResponseEntity.ok(Map.of("success", true, "gameId", game.getGameId()));
+    public ResponseEntity<?> createGame(@RequestBody Map<String, String> request) {
+        String roomId = request.get("roomId");
+        GameState gameState = gameService.createGame(roomId);
+        return ResponseEntity.ok(Map.of("success", true, "gameId", gameState.getGameId()));
     }
 
     @MessageMapping("/game.vote")
@@ -137,8 +129,7 @@ public class GameController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", gameState,
-                    "roomId", gameState.getRoomId(),
-                    "roomName", gameState.getRoomName() != null ? gameState.getRoomName() : ""));
+                    "roomId", gameState.getRoomId()));
         }
 
         return ResponseEntity.ok(Map.of("success", false, "message", "참여 중인 게임이 없습니다."));
@@ -146,15 +137,17 @@ public class GameController {
 
     /**
      * 역할과 페이즈에 따른 채팅 추천 문구 조회
+     * GET /api/game/suggestions?role=MAFIA&phase=NIGHT_ACTION
      */
     @GetMapping("/suggestions")
     public ResponseEntity<?> getSuggestions(
-            @RequestParam SuggestionsRequestDto dto) {
+            @RequestParam("role") PlayerRole role,
+            @RequestParam("phase") GamePhase phase,
+            @RequestParam(value = "gameId", required = false) String gameId) {
         try {
-            PlayerRole playerRole = dto.role();
-            GamePhase gamePhase = dto.phase();
-
-            List<String> suggestions = gameService.getSuggestions(playerRole, gamePhase);
+            log.info("getSuggestions 요청: role={}, phase={}, gameId={}", role, phase, gameId);
+            List<String> suggestions = suggestionService.getSuggestions(role, phase, gameId);
+            log.info("getSuggestions 결과: 개수={}", suggestions != null ? suggestions.size() : 0);
 
             if (suggestions == null || suggestions.isEmpty()) {
                 return ResponseEntity.ok(Map.of(

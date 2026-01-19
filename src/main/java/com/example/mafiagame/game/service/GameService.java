@@ -12,12 +12,20 @@ import com.example.mafiagame.game.domain.Vote;
 import com.example.mafiagame.game.domain.FinalVote;
 import com.example.mafiagame.game.domain.NightAction;
 
-import com.example.mafiagame.game.dto.request.CreateGameRequest;
-import com.example.mafiagame.game.dto.request.SuggestionsRequestDto;
+import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.domain.ChatUser;
+import com.example.mafiagame.chat.service.ChatRoomService;
+import com.example.mafiagame.game.strategy.RoleActionFactory;
+import com.example.mafiagame.game.strategy.RoleActionStrategy;
+import com.example.mafiagame.game.strategy.NightActionResult;
+import com.example.mafiagame.game.state.GamePhaseFactory;
+import com.example.mafiagame.game.state.GamePhaseState;
 import com.example.mafiagame.user.domain.User;
 import com.example.mafiagame.user.repository.UserRepository;
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.global.error.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -42,6 +50,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GameService {
 
+    private final SuggestionService suggestionService;
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
@@ -49,15 +58,15 @@ public class GameService {
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
     private final TimerService timerService;
+    private final RoleActionFactory roleActionFactory;
+    private final GamePhaseFactory gamePhaseFactory;
+    private final ChatRoomService chatRoomService;
 
-    // Redis Key Prefixes
     private static final String GAME_STATE_KEY_PREFIX = "game:state:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
-    private static final String SUGGESTION_PREFIX = "suggestion:role:";
 
-    // Lua Script for atomic vote operation
     private static final String VOTE_LUA_SCRIPT = """
             local gameStateKey = KEYS[1]
             local votesKey = KEYS[2]
@@ -77,7 +86,6 @@ public class GameService {
             return 'OK'
             """;
 
-    // Lua Script for final vote operation
     private static final String FINAL_VOTE_LUA_SCRIPT = """
             local gameStateKey = KEYS[1]
             local finalVotesKey = KEYS[2]
@@ -95,7 +103,6 @@ public class GameService {
             return 'OK'
             """;
 
-    // Lua Script for night action operation
     private static final String NIGHT_ACTION_LUA_SCRIPT = """
             local gameStateKey = KEYS[1]
             local nightActionsKey = KEYS[2]
@@ -113,17 +120,32 @@ public class GameService {
             return 'OK'
             """;
 
-    // --- Game Logic (Persistence + Redis) ---
-
     @Transactional
-    public Game createGame(CreateGameRequest request) {
-        String roomId = request.roomId();
-        List<CreateGameRequest.PlayerData> playersData = request.players();
+    public GameState createGame(String roomId) {
+        // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
+        if (hasActiveGame(roomId)) {
+            log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
+            GameState existingGame = getActiveGameByRoomId(roomId);
+            if (existingGame != null) {
+                return existingGame;
+            }
+        }
+
+        // ChatRoom에서 플레이어 정보 가져오기
+        ChatRoom chatRoom = chatRoomService.getRoom(roomId);
+        if (chatRoom == null) {
+            throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
+        }
+
+        List<ChatUser> participants = chatRoom.getParticipants();
+        if (participants.size() < 4) {
+            throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다.");
+        }
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
 
-        List<String> playerIds = playersData.stream()
-                .map(CreateGameRequest.PlayerData::playerId)
+        List<String> playerIds = participants.stream()
+                .map(ChatUser::getUserId)
                 .toList();
         Map<String, User> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
                 .stream()
@@ -137,10 +159,10 @@ public class GameService {
                 .startTime(LocalDateTime.now())
                 .build();
 
-        List<GamePlayer> dbPlayers = playersData.stream().map(pData -> {
-            User user = userMap.get(pData.playerId());
+        List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
+            User user = userMap.get(participant.getUserId());
             if (user == null) {
-                throw new RuntimeException("User not found: " + pData.playerId());
+                throw new RuntimeException("User not found: " + participant.getUserId());
             }
             return GamePlayer.builder()
                     .game(game)
@@ -152,16 +174,16 @@ public class GameService {
         game.setPlayers(dbPlayers);
         gameRepository.save(game);
 
-        // Redis: 게임 상태 저장 (userMap 재사용)
+        // Redis: 게임 상태 저장
         GameState gameState = GameState.builder()
                 .gameId(gameId)
                 .roomId(roomId)
-                .roomName(request.roomName())
+                .roomName(chatRoom.getRoomName())
                 .status(GameStatus.IN_PROGRESS)
-                .gamePhase(GamePhase.DAY_DISCUSSION)
+                .gamePhase(GamePhase.NIGHT_ACTION)
                 .currentPhase(0)
-                .players(playersData.stream().map(pData -> {
-                    User user = userMap.get(pData.playerId());
+                .players(participants.stream().map(participant -> {
+                    User user = userMap.get(participant.getUserId());
                     return GamePlayerState.builder()
                             .playerId(user.getUserLoginId())
                             .playerName(user.getNickname())
@@ -172,10 +194,19 @@ public class GameService {
                             .build();
                 }).collect(Collectors.toList()))
                 .build();
+
         gameStateRepository.save(gameState);
 
+        assignRoles(gameId);
+        startGame(gameId);
+
+        GameState updatedGameState = gameStateRepository.findById(gameId)
+                .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
+
+        messagingTemplate.convertAndSend("/topic/room." + roomId,
+                Map.of("type", "GAME_START", "game", updatedGameState));
         log.info("게임 생성됨: {}", gameId);
-        return game;
+        return gameState;
     }
 
     public void assignRoles(String gameId) {
@@ -235,6 +266,10 @@ public class GameService {
         // 1. Redis 상태 업데이트
         gameState.setStatus(GameStatus.IN_PROGRESS);
         toNextDayPhase(gameState); // 1일차 낮 시작 및 저장됨
+
+        // [AI] 첫 페이즈 추천 문구 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
+        // suggestionService.generateAiSuggestionsAsync(gameId,
+        // GamePhase.DAY_DISCUSSION);
 
         // 2. 타이머 시작
         timerService.startTimer(gameId);
@@ -303,25 +338,44 @@ public class GameService {
         if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
             return;
 
-        switch (gameState.getGamePhase()) {
-            case DAY_DISCUSSION -> toPhase(gameState, GamePhase.DAY_VOTING, 30);
-            case DAY_VOTING -> processDayVoting(gameState);
-            case DAY_FINAL_DEFENSE -> toPhase(gameState, GamePhase.DAY_FINAL_VOTING, 15);
-            case DAY_FINAL_VOTING -> processFinalVoting(gameState);
-            case NIGHT_ACTION -> processNight(gameState);
-        }
+        // State Pattern: 페이즈별 상태 객체가 처리
+        GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
 
-        // 게임이 종료되었으면(상태가 IN_PROGRESS가 아니면) 저장/스케줄링 하지 않고 리턴
+        // 현재 페이즈 처리 (투표 결과, 밤 행동 등)
+        processCurrentPhase(gameState);
+
+        // 게임이 종료되었으면 리턴
         if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
             return;
         }
+
+        // 다음 상태로 전환
+        GamePhaseState nextState = currentState.nextState(gameState);
+        nextState.process(gameState);
+
+        // 페이즈 종료 시간 설정 (epoch millis)
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
 
         // 상태 변경 후 저장 및 알림
         gameStateRepository.save(gameState);
         sendPhaseSwitchMessage(gameState);
 
+        // [AI] 다음 페이즈 문구 미리 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
+        // suggestionService.generateAiSuggestionsAsync(gameId,
+        // currentState.nextState(gameState).getGamePhase());
+
         // 다음 페이즈 타이머 시작
         timerService.startTimer(gameId);
+    }
+
+    private void processCurrentPhase(GameState gameState) {
+        switch (gameState.getGamePhase()) {
+            case DAY_VOTING -> processDayVoting(gameState);
+            case DAY_FINAL_VOTING -> processFinalVoting(gameState);
+            case NIGHT_ACTION -> processNight(gameState);
+            default -> {
+            } // DAY_DISCUSSION, DAY_FINAL_DEFENSE는 특별한 처리 없음
+        }
     }
 
     // ... (vote, finalVote etc methods omitted) ...
@@ -620,22 +674,45 @@ public class GameService {
     }
 
     private void processNightActions(GameState gameState) {
-        Map<String, Long> mafiaVotes = gameState.getNightActions().stream()
-                .filter(action -> {
-                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
-                    return p != null && p.getRole() == PlayerRole.MAFIA;
-                })
-                .collect(Collectors.groupingBy(NightAction::getTargetId, Collectors.counting()));
+        // Strategy Pattern: 역할에 맞는 전략을 Factory에서 가져와 실행
+        List<NightActionResult> results = new ArrayList<>();
 
-        String mafiaTargetId = getTopVotedPlayers(mafiaVotes).stream().findFirst().orElse(null);
+        for (NightAction action : gameState.getNightActions()) {
+            GamePlayerState actor = findPlayerById(gameState, action.getActorId());
+            GamePlayerState target = findPlayerById(gameState, action.getTargetId());
 
-        String doctorTargetId = gameState.getNightActions().stream()
-                .filter(action -> {
-                    GamePlayerState p = findPlayerById(gameState, action.getActorId());
-                    return p != null && p.getRole() == PlayerRole.DOCTOR;
-                })
-                .map(NightAction::getTargetId).findFirst().orElse(null);
+            if (actor == null || target == null)
+                continue;
 
+            RoleActionStrategy strategy = roleActionFactory.getStrategy(actor.getRole());
+            if (strategy != null) {
+                NightActionResult result = strategy.execute(gameState, actor, target);
+                results.add(result);
+
+                // 경찰은 즉시 결과 전송
+                if (actor.getRole() == PlayerRole.POLICE) {
+                    sendPoliceInvestigationResult(actor, target);
+                }
+            }
+        }
+
+        // 마피아 공격 결과 계산
+        String mafiaTargetId = results.stream()
+                .filter(r -> r.getActorRole() == PlayerRole.MAFIA)
+                .collect(Collectors.groupingBy(NightActionResult::getTargetId, Collectors.counting()))
+                .entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+        // 의사 보호 대상 확인
+        String doctorTargetId = results.stream()
+                .filter(r -> r.getActorRole() == PlayerRole.DOCTOR)
+                .map(NightActionResult::getTargetId)
+                .findFirst()
+                .orElse(null);
+
+        // 결과 처리
         if (mafiaTargetId != null && !mafiaTargetId.equals(doctorTargetId)) {
             findPlayerById(gameState, mafiaTargetId, killed -> {
                 killed.setAlive(false);
@@ -668,6 +745,22 @@ public class GameService {
      */
     public GameState getGameByPlayerId(String playerId) {
         return gameStateRepository.findByPlayerId(playerId).orElse(null);
+    }
+
+    /**
+     * 해당 방에 이미 진행 중인 게임이 있는지 확인
+     */
+    public boolean hasActiveGame(String roomId) {
+        return getActiveGameByRoomId(roomId) != null;
+    }
+
+    /**
+     * 해당 방의 진행 중인 게임 상태 조회 (Redis)
+     */
+    public GameState getActiveGameByRoomId(String roomId) {
+        return gameStateRepository.findByRoomId(roomId)
+                .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
+                .orElse(null);
     }
 
     // 사용되지 않을 수 있으나 호환성 유지
@@ -770,84 +863,5 @@ public class GameService {
             case DOCTOR -> "밤에 한 명을 지목하여 마피아의 공격으로부터 보호할 수 있습니다.";
             case CITIZEN -> "특별한 능력이 없습니다. 추리를 통해 마피아를 찾아내세요.";
         };
-    }
-
-    // ================== 채팅 추천 문구 ================== //
-
-    /**
-     * 역할별/페이즈별 기본 추천 문구 초기화 (서버 시작 시 1회 호출)
-     * ApplicationRunner나 @PostConstruct에서 호출 권장
-     */
-    public void initAllSuggestions() {
-        // ==================== 밤 액션 (역할별) ====================
-
-        // 마피아 - 밤 액션
-        initSuggestions(new SuggestionsRequestDto(PlayerRole.MAFIA, GamePhase.NIGHT_ACTION), List.of(
-                "누구 죽일까요?",
-                "1번 어때요?",
-                "2번 죽이죠",
-                "3번 수상해요",
-                "의사 같은 사람 죽여요",
-                "경찰 먼저 없애요",
-                "조용한 사람 노려요",
-                "말 많은 사람 죽여요"));
-
-        // ==================== 낮 토론 ====================
-        List<String> dayDiscussionSuggestions = List.of(
-                "경찰 조사 결과 누구야??",
-                "누가 수상해요?",
-                "어젯밤에 뭐 했어요?",
-                "저는 시민이에요",
-                "투표하기 전에 얘기 좀 해요");
-
-        for (PlayerRole role : PlayerRole.values()) {
-            initSuggestions(new SuggestionsRequestDto(role, GamePhase.DAY_DISCUSSION), dayDiscussionSuggestions);
-        }
-
-        // ==================== 낮 투표 ====================
-        List<String> dayVotingSuggestions = List.of(
-                "1번 투표해요",
-                "2번 수상해요",
-                "3번 찍어요",
-                "스킵할까요?");
-
-        for (PlayerRole role : PlayerRole.values()) {
-            initSuggestions(new SuggestionsRequestDto(role, GamePhase.DAY_VOTING), dayVotingSuggestions);
-        }
-
-        log.info("채팅 추천 문구 초기화 완료");
-    }
-
-    /**
-     * 특정 역할/페이즈에 대한 추천 문구 저장
-     */
-    private void initSuggestions(SuggestionsRequestDto dto, List<String> suggestions) {
-        String key = buildSuggestionKey(dto.role(), dto.phase());
-
-        // 기존 키가 있으면 건너뜀 (이미 초기화됨)
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) {
-            return;
-        }
-
-        for (String suggestion : suggestions) {
-            stringRedisTemplate.opsForList().rightPush(key, suggestion);
-        }
-
-        log.debug("추천 문구 초기화: role={}, phase={}, count={}", dto.role(), dto.phase(), suggestions.size());
-    }
-
-    /**
-     * 역할과 페이즈에 따른 추천 문구 조회
-     */
-    public List<String> getSuggestions(PlayerRole role, GamePhase phase) {
-        String key = buildSuggestionKey(role, phase);
-        return stringRedisTemplate.opsForList().range(key, 0, -1);
-    }
-
-    /**
-     * Redis 키 생성: suggestion:role:{role}:phase:{phase}
-     */
-    private String buildSuggestionKey(PlayerRole role, GamePhase phase) {
-        return SUGGESTION_PREFIX + role.name() + ":phase:" + phase.name();
     }
 }
