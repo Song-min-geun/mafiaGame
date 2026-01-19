@@ -135,15 +135,9 @@ export async function startGame() {
         return;
     }
 
-    const players = participants.map(p => ({
-        playerId: p.userId,
-        playerName: p.userName
-    }));
-
-    const roomName = state.currentRoomInfo.roomName || state.currentRoomName || '';
-
     try {
-        const result = await api.createGame(currentRoom, roomName, players);
+        // 이제 roomId만 전달 (백엔드에서 플레이어 정보 직접 조회)
+        const result = await api.createGame(currentRoom);
 
         if (!result.success) {
             throw new Error(result.message || '게임 시작 실패');
@@ -247,9 +241,6 @@ function addToggleBtn(areaElement) {
     const btn = document.createElement('button');
     btn.className = 'ui-toggle-btn';
     btn.innerHTML = '<span class="arrow-chevron"></span>'; // CSS styled chevron
-    // Actually log says arrow button to expand.. 
-    // If NOT minimized, arrow should be UP to minimize? Or just always toggle.
-    // CSS rotates it.
 
     btn.onclick = (e) => {
         e.stopPropagation();
@@ -309,12 +300,17 @@ export function showFinalVoteUI(game) {
         votingDescription.textContent = `${game.votedPlayerName || '최다 득표자'}를 처형할까요?`;
     }
 
-    votingOptions.innerHTML = `
-        <div class="final-vote-buttons">
-            <button class="vote-agree" onclick="window.submitFinalVote(true)">찬성</button>
-            <button class="vote-disagree" onclick="window.submitFinalVote(false)">반대</button>
-        </div>
+    option.className = 'vote-option';
+    option.innerHTML = `
+        <span class="player-name">찬성</span>
     `;
+    votingOptions.appendChild(option);
+
+    option.className = 'vote-option';
+    option.innerHTML = `
+        <span class="player-name">반대</span>
+    `;
+    votingOptions.appendChild(option);
 
     addToggleBtn(votingArea);
 }

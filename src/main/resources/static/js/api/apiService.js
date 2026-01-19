@@ -140,10 +140,10 @@ export async function fetchRoomDetails(roomId) {
 /**
  * Create a new game
  */
-export async function createGame(roomId, roomName, players) {
+export async function createGame(roomId) {
     const response = await apiRequest(API_ENDPOINTS.GAME_CREATE, {
         method: 'POST',
-        body: JSON.stringify({ roomId, roomName, players })
+        body: JSON.stringify({ roomId })
     });
 
     const result = await response.json();
@@ -193,10 +193,13 @@ export async function fetchGameState(roomId) {
 /**
  * Fetch chat suggestions for role and phase
  */
-export async function fetchSuggestions(role, phase) {
-    const response = await apiRequest(
-        `${API_ENDPOINTS.GAME_SUGGESTIONS}?role=${role}&phase=${phase}`
-    );
+export async function fetchSuggestions(role, phase, gameId) {
+    let url = `${API_ENDPOINTS.GAME_SUGGESTIONS}?role=${role}&phase=${phase}`;
+    if (gameId) {
+        url += `&gameId=${gameId}`;
+    }
+
+    const response = await apiRequest(url);
 
     if (!response.ok) {
         return [];

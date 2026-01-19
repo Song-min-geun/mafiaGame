@@ -26,4 +26,9 @@ public class DayFinalVotingState implements GamePhaseState {
     public GamePhaseState nextState(GameState gameState) {
         return new NightActionState();
     }
+
+    @Override
+    public GamePhase getGamePhase() {
+        return GamePhase.DAY_FINAL_VOTING;
+    }
 }
