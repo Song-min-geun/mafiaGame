@@ -1,7 +1,10 @@
 package com.example.mafiagame.chat.controller;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
 import com.example.mafiagame.chat.service.ChatRoomService;
+import com.example.mafiagame.game.service.GameService;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -16,14 +19,14 @@ import java.util.Map;
 public class ChatRoomRestController {
 
     private final ChatRoomService chatRoomService;
-    private final com.example.mafiagame.game.service.GameService gameService;
+    private final GameService gameService;
 
     @PostMapping
     public ResponseEntity<ChatRoom> createRoom(@RequestBody Map<String, String> request,
             Authentication authentication) {
         String roomName = request.get("roomName");
-        String hostId = authentication.getName(); // 인증된 사용자 정보 사용
-        ChatRoom room = chatRoomService.createRoom(roomName, hostId);
+        String hostId = authentication.getName();
+        ChatRoom room = chatRoomService.createRoom(new CreateRoomRequest(roomName, hostId));
         return ResponseEntity.ok(room);
     }
 

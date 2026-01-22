@@ -1,6 +1,8 @@
 package com.example.mafiagame.chat.controller;
 
 import com.example.mafiagame.chat.dto.ChatMessage;
+import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
+import com.example.mafiagame.chat.dto.request.LeaveRoomRequest;
 import com.example.mafiagame.chat.service.ChatRoomService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,7 +60,7 @@ public class ChatRoomController {
             return;
         }
         String roomId = (String) payload.get("roomId");
-        chatRoomService.userJoin(roomId, principal.getName());
+        chatRoomService.userJoin(new JoinRoomRequest(roomId, principal.getName()));
     }
 
     @MessageMapping("/room.leave")
@@ -69,7 +71,7 @@ public class ChatRoomController {
             return;
         }
         String roomId = (String) payload.get("roomId");
-        chatRoomService.userLeave(roomId, principal.getName());
+        chatRoomService.userLeave(LeaveRoomRequest.of(roomId, principal.getName()));
     }
 
     @EventListener
