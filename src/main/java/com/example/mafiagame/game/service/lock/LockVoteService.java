@@ -8,7 +8,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -58,10 +60,10 @@ public class LockVoteService {
             try {
                 // SessionCallback을 사용한 WATCH/MULTI/EXEC
                 Boolean success = redisTemplate
-                        .execute(new org.springframework.data.redis.core.SessionCallback<Boolean>() {
+                        .execute(new SessionCallback<Boolean>() {
                             @Override
                             @SuppressWarnings("unchecked")
-                            public Boolean execute(org.springframework.data.redis.core.RedisOperations operations) {
+                            public Boolean execute(RedisOperations operations) {
                                 operations.watch(key);
 
                                 GameState gameState = (GameState) operations.opsForValue().get(key);

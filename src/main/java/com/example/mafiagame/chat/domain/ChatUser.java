@@ -1,7 +1,12 @@
 package com.example.mafiagame.chat.domain;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -28,9 +33,16 @@ public class ChatUser {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_id")
-    @JsonBackReference
     private ChatRoom room;
 
     @Builder.Default
     private boolean isHost = false;
+
+    public void assignAsHost() {
+        this.isHost = true;
+    }
+
+    public void removeHost() {
+        this.isHost = false;
+    }
 }
