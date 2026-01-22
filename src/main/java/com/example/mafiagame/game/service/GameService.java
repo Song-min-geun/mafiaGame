@@ -378,19 +378,10 @@ public class GameService {
     // ... (vote, finalVote etc methods omitted) ...
 
     private boolean checkGameEnd(GameState gameState) {
-        long mafia = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
-                .count();
-        long citizen = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA)
-                .count();
-
-        if (mafia >= citizen) {
-            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
-            endGame(gameState.getGameId(), "MAFIA");
-            return true;
-        }
-        if (mafia == 0) {
-            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
-            endGame(gameState.getGameId(), "CITIZEN");
+        String winner = gameState.checkWinner();
+        if (winner != null) {
+            gameState.setStatus(GameStatus.ENDED);
+            endGame(gameState.getGameId(), winner);
             return true;
         }
         return false;
@@ -808,7 +799,7 @@ public class GameService {
         return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();
     }
 
-    // 오버로딩: Map 입력
+    // 오버로딩: Map 입력 (미사용 - 추후 삭제 고려)
     private List<String> getTopVotedPlayers(Map<String, Long> counts) {
         if (counts == null || counts.isEmpty())
             return new ArrayList<>();
@@ -817,21 +808,16 @@ public class GameService {
     }
 
     private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
-        GamePlayerState p = findPlayerById(gameState, playerId);
-        return (p != null && p.isAlive()) ? p : null;
+        return gameState.findActivePlayer(playerId);
     }
 
     private GamePlayerState findPlayerById(GameState gameState, String playerId) {
-        if (gameState.getPlayers() == null)
-            return null;
-        return gameState.getPlayers().stream()
-                .filter(p -> p.getPlayerId().equals(playerId))
-                .findFirst().orElse(null);
+        return gameState.findPlayer(playerId);
     }
 
     private void findPlayerById(GameState gameState, String playerId,
             java.util.function.Consumer<GamePlayerState> action) {
-        GamePlayerState p = findPlayerById(gameState, playerId);
+        GamePlayerState p = gameState.findPlayer(playerId);
         if (p != null)
             action.accept(p);
     }

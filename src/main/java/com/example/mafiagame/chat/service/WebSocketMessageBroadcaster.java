@@ -11,10 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
-/**
- * WebSocket 메시지 전송을 담당하는 Component
- * ChatRoomService, GameService 등에서 공통으로 사용
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -22,8 +18,6 @@ public class WebSocketMessageBroadcaster {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final ApplicationContext applicationContext;
-
-    // ================== 방 전체 메시지 ================== //
 
     /**
      * 특정 방의 모든 사용자에게 메시지 전송

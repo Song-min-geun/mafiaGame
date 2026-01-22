@@ -54,8 +54,6 @@ public class GameState {
 
     private String votedPlayerId;
 
-    // ================== 도메인 로직 ================== //
-
     /**
      * 특정 플레이어가 살아있는지 확인
      */
@@ -104,5 +102,73 @@ public class GameState {
      */
     public boolean canPlayerLeave(String playerId) {
         return !isPlayerAlive(playerId);
+    }
+
+    /**
+     * 살아있는 특정 플레이어 조회
+     */
+    public GamePlayerState findActivePlayer(String playerId) {
+        GamePlayerState player = findPlayer(playerId);
+        return (player != null && player.isAlive()) ? player : null;
+    }
+
+    /**
+     * 생존한 마피아 수
+     */
+    public long countAliveMafia() {
+        return players.stream()
+                .filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
+                .count();
+    }
+
+    /**
+     * 생존한 시민(마피아 제외) 수
+     */
+    public long countAliveCitizen() {
+        return players.stream()
+                .filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA)
+                .count();
+    }
+
+    /**
+     * 게임 종료 조건 확인 및 승자 반환
+     * 
+     * @return "MAFIA", "CITIZEN", 또는 null (게임 계속)
+     */
+    public String checkWinner() {
+        long mafia = countAliveMafia();
+        long citizen = countAliveCitizen();
+
+        if (mafia >= citizen) {
+            return "MAFIA";
+        }
+        if (mafia == 0) {
+            return "CITIZEN";
+        }
+        return null; // 게임 계속
+    }
+
+    /**
+     * 투표에서 최다 득표자 ID 목록 반환
+     */
+    public List<String> getTopVotedPlayerIds() {
+        if (votes == null || votes.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<String, Long> counts = votes.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        Vote::getTargetId,
+                        java.util.stream.Collectors.counting()));
+
+        if (counts.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        long max = java.util.Collections.max(counts.values());
+        return counts.entrySet().stream()
+                .filter(e -> e.getValue() == max)
+                .map(Map.Entry::getKey)
+                .toList();
     }
 }
