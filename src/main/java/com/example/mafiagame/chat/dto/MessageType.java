@@ -3,6 +3,7 @@ package com.example.mafiagame.chat.dto;
 public enum MessageType {
     ROOM_CREATED,
     CHAT,
+    SYSTEM,
     USER_JOINED,
     USER_LEFT,
     HOST_CHANGED,
