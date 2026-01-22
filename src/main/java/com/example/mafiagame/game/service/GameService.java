@@ -50,7 +50,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GameService {
 
-    private final SuggestionService suggestionService;
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
@@ -767,6 +766,37 @@ public class GameService {
     public Set<String> getActiveGameIds() {
         // Redis Keys scan 필요 (추후 구현 or 비권장)
         return Collections.emptySet();
+    }
+
+    /**
+     * 플레이어가 방을 떠날 수 있는지 확인
+     * (게임 진행 중 살아있는 플레이어는 퇴장 불가)
+     */
+    public boolean canPlayerLeaveRoom(String roomId, String userId) {
+        Game game = getGameByRoomId(roomId);
+        if (game == null)
+            return true;
+
+        GameState gameState = getGameState(game.getGameId());
+        if (gameState == null)
+            return true;
+
+        return gameState.canPlayerLeave(userId);
+    }
+
+    /**
+     * 플레이어가 채팅할 수 있는지 확인
+     */
+    public boolean canPlayerChat(String roomId, String playerId) {
+        Game game = getGameByRoomId(roomId);
+        if (game == null)
+            return true;
+
+        GameState gameState = getGameState(game.getGameId());
+        if (gameState == null)
+            return true;
+
+        return gameState.canPlayerChat(playerId);
     }
 
     private List<String> getTopVotedPlayers(List<Vote> votes) {
