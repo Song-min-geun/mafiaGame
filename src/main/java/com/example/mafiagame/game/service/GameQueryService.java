@@ -9,6 +9,7 @@ import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

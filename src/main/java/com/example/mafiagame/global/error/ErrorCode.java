@@ -10,6 +10,7 @@ public enum ErrorCode {
     ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "ROOM_NOT_FOUND", "Room Not Found"),
     GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "GAME_NOT_FOUND", "Game Not Found"),
     GAMESTATE_NOT_FOUND(HttpStatus.NOT_FOUND, "GAMESTATE_NOT_FOUND", "Game State Not Found"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User Not Found"),
     ;
 
     private final String code;

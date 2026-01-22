@@ -64,72 +64,48 @@ public class ChatRoom {
 
     // 채팅방에 새로운 참가자를 추가합니다. 중복 참여는 방지됩니다.
 
-    public void addParticipant(String userId, String userName, boolean isHost) {
-
+    public void addParticipant(ChatUser participant) {
         if (this.participants == null) {
-
             this.participants = new ArrayList<>();
-
         }
 
-        if (isParticipant(userId))
-            return; // 중복 참여 방지
+        // 중복 참여 방지
+        if (isParticipant(participant.getUserId())) {
+            return;
+        }
 
-        ChatUser participant = ChatUser.builder()
-
-                .userId(userId)
-
-                .userName(userName)
-
-                .room(this)
-
-                .isHost(isHost)
-
-                .build();
-
+        // 연관관계 편의 메서드
+        participant.setRoom(this);
         this.participants.add(participant);
-
     }
 
     // 특정 참가자를 채팅방에서 제거합니다. 만약 방장이 나가면 다른 참가자에게 방장 역할을 위임합니다.
 
     public String removeParticipant(String userId) {
         if (this.participants == null) {
-
             return null;
-
         }
 
         ChatUser userToRemove = this.participants.stream()
-
                 .filter(p -> p.getUserId().equals(userId))
+                .findFirst()
+                .orElse(null);
 
-                .findFirst().orElse(null);
-
-        if (userToRemove != null) {
-
-            this.participants.remove(userToRemove);
-
-            // 방장이 나갔을 경우, 다른 참가자가 있으면 방장 위임
-
-            if (userToRemove.isHost() && !this.participants.isEmpty()) {
-
-                ChatUser newHost = this.participants.get(0);
-
-                newHost.setHost(true);
-
-                this.hostId = newHost.getUserId();
-
-                this.hostName = newHost.getUserName();
-
-            }
-
-            return userToRemove.getUserName();
-
+        if (userToRemove == null) {
+            return null;
         }
 
-        return null;
+        this.participants.remove(userToRemove);
 
+        // 방장이 나갔을 경우, 다른 참가자가 있으면 방장 위임
+        if (userToRemove.isHost() && !this.participants.isEmpty()) {
+            ChatUser newHost = this.participants.get(0);
+            newHost.assignAsHost();
+            this.hostId = newHost.getUserId();
+            this.hostName = newHost.getUserName();
+        }
+
+        return userToRemove.getUserName();
     }
 
     // 주어진 ID의 사용자가 이미 채팅방에 있는지 확인합니다.
