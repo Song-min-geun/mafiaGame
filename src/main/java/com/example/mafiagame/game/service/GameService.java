@@ -32,9 +32,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,11 +50,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GameService {
 
-    private final SuggestionService suggestionService;
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
     private final TimerService timerService;
@@ -203,8 +202,7 @@ public class GameService {
         GameState updatedGameState = gameStateRepository.findById(gameId)
                 .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
 
-        messagingTemplate.convertAndSend("/topic/room." + roomId,
-                Map.of("type", "GAME_START", "game", updatedGameState));
+        messageBroadcaster.sendGameStart(roomId, updatedGameState);
         log.info("게임 생성됨: {}", gameId);
         return gameState;
     }
@@ -326,8 +324,7 @@ public class GameService {
         timerService.stopTimer(gameId);
 
         // 4. 종료 메시지 전송
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
-                Map.of("type", "GAME_ENDED", "winner", winner, "players", gameState.getPlayers()));
+        messageBroadcaster.sendGameEnded(gameState.getRoomId(), winner, gameState.getPlayers());
 
         // 5. Redis 데이터 삭제 (게임 끝!)
         gameStateRepository.delete(gameId);
@@ -381,19 +378,10 @@ public class GameService {
     // ... (vote, finalVote etc methods omitted) ...
 
     private boolean checkGameEnd(GameState gameState) {
-        long mafia = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
-                .count();
-        long citizen = gameState.getPlayers().stream().filter(p -> p.isAlive() && p.getRole() != PlayerRole.MAFIA)
-                .count();
-
-        if (mafia >= citizen) {
-            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
-            endGame(gameState.getGameId(), "MAFIA");
-            return true;
-        }
-        if (mafia == 0) {
-            gameState.setStatus(GameStatus.ENDED); // Mark object as ended
-            endGame(gameState.getGameId(), "CITIZEN");
+        String winner = gameState.checkWinner();
+        if (winner != null) {
+            gameState.setStatus(GameStatus.ENDED);
+            endGame(gameState.getGameId(), winner);
             return true;
         }
         return false;
@@ -769,6 +757,37 @@ public class GameService {
         return Collections.emptySet();
     }
 
+    /**
+     * 플레이어가 방을 떠날 수 있는지 확인
+     * (게임 진행 중 살아있는 플레이어는 퇴장 불가)
+     */
+    public boolean canPlayerLeaveRoom(String roomId, String userId) {
+        Game game = getGameByRoomId(roomId);
+        if (game == null)
+            return true;
+
+        GameState gameState = getGameState(game.getGameId());
+        if (gameState == null)
+            return true;
+
+        return gameState.canPlayerLeave(userId);
+    }
+
+    /**
+     * 플레이어가 채팅할 수 있는지 확인
+     */
+    public boolean canPlayerChat(String roomId, String playerId) {
+        Game game = getGameByRoomId(roomId);
+        if (game == null)
+            return true;
+
+        GameState gameState = getGameState(game.getGameId());
+        if (gameState == null)
+            return true;
+
+        return gameState.canPlayerChat(playerId);
+    }
+
     private List<String> getTopVotedPlayers(List<Vote> votes) {
         if (votes == null || votes.isEmpty())
             return new ArrayList<>();
@@ -780,7 +799,7 @@ public class GameService {
         return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();
     }
 
-    // 오버로딩: Map 입력
+    // 오버로딩: Map 입력 (미사용 - 추후 삭제 고려)
     private List<String> getTopVotedPlayers(Map<String, Long> counts) {
         if (counts == null || counts.isEmpty())
             return new ArrayList<>();
@@ -789,21 +808,16 @@ public class GameService {
     }
 
     private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
-        GamePlayerState p = findPlayerById(gameState, playerId);
-        return (p != null && p.isAlive()) ? p : null;
+        return gameState.findActivePlayer(playerId);
     }
 
     private GamePlayerState findPlayerById(GameState gameState, String playerId) {
-        if (gameState.getPlayers() == null)
-            return null;
-        return gameState.getPlayers().stream()
-                .filter(p -> p.getPlayerId().equals(playerId))
-                .findFirst().orElse(null);
+        return gameState.findPlayer(playerId);
     }
 
     private void findPlayerById(GameState gameState, String playerId,
             java.util.function.Consumer<GamePlayerState> action) {
-        GamePlayerState p = findPlayerById(gameState, playerId);
+        GamePlayerState p = gameState.findPlayer(playerId);
         if (p != null)
             action.accept(p);
     }
@@ -811,7 +825,7 @@ public class GameService {
     // --- Message Sending ---
 
     public void sendTimerUpdate(GameState gameState) {
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
+        messageBroadcaster.broadcastToRoom(gameState.getRoomId(),
                 Map.of("type", "TIMER_UPDATE",
                         "gameId", gameState.getGameId(),
                         "phaseEndTime",
@@ -821,12 +835,11 @@ public class GameService {
     }
 
     private void sendPhaseSwitchMessage(GameState gameState) {
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
-                Map.of("type", "PHASE_SWITCHED", "game", gameState)); // 이제 GameState를 보내야 함!
+        messageBroadcaster.sendPhaseChange(gameState.getRoomId(), gameState);
     }
 
     private void sendSystemMessage(String roomId, String content) {
-        messagingTemplate.convertAndSend("/topic/room." + roomId, Map.of("type", "SYSTEM", "content", content));
+        messageBroadcaster.sendSystemMessage(roomId, content);
     }
 
     private void sendRoleAssignmentMessage(String playerId, PlayerRole role) {
@@ -849,11 +862,7 @@ public class GameService {
     }
 
     private void sendPrivateMessage(String playerId, Map<String, Object> payload) {
-        try {
-            messagingTemplate.convertAndSend("/topic/private/" + playerId, payload);
-        } catch (Exception e) {
-            log.error("Private msg fail", e);
-        }
+        messageBroadcaster.sendToUser(playerId, payload);
     }
 
     private String getRoleDescription(PlayerRole role) {

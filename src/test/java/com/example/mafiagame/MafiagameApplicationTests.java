@@ -1,6 +1,8 @@
 package com.example.mafiagame;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
+import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
+import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
@@ -49,7 +51,7 @@ class MafiagameApplicationTests {
         userRepository.save(host);
 
         // 채팅방 생성 (방장이 생성)
-        ChatRoom chatRoom = chatRoomService.createRoom("test-room", hostLoginId);
+        ChatRoom chatRoom = chatRoomService.createRoom(new CreateRoomRequest("test-room", hostLoginId));
         String roomId = chatRoom.getRoomId();
 
         // 나머지 유저 생성 및 채팅방 참여
@@ -63,7 +65,7 @@ class MafiagameApplicationTests {
                     .build();
             userRepository.save(user);
 
-            chatRoomService.userJoin(roomId, loginId);
+            chatRoomService.userJoin(new JoinRoomRequest(roomId, loginId));
         }
 
         // 게임 시작 (이제 roomId만 전달)
