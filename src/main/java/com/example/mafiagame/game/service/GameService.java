@@ -32,9 +32,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -53,7 +53,7 @@ public class GameService {
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UserRepository userRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
     private final TimerService timerService;
@@ -202,8 +202,7 @@ public class GameService {
         GameState updatedGameState = gameStateRepository.findById(gameId)
                 .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
 
-        messagingTemplate.convertAndSend("/topic/room." + roomId,
-                Map.of("type", "GAME_START", "game", updatedGameState));
+        messageBroadcaster.sendGameStart(roomId, updatedGameState);
         log.info("게임 생성됨: {}", gameId);
         return gameState;
     }
@@ -325,8 +324,7 @@ public class GameService {
         timerService.stopTimer(gameId);
 
         // 4. 종료 메시지 전송
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
-                Map.of("type", "GAME_ENDED", "winner", winner, "players", gameState.getPlayers()));
+        messageBroadcaster.sendGameEnded(gameState.getRoomId(), winner, gameState.getPlayers());
 
         // 5. Redis 데이터 삭제 (게임 끝!)
         gameStateRepository.delete(gameId);
@@ -841,7 +839,7 @@ public class GameService {
     // --- Message Sending ---
 
     public void sendTimerUpdate(GameState gameState) {
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
+        messageBroadcaster.broadcastToRoom(gameState.getRoomId(),
                 Map.of("type", "TIMER_UPDATE",
                         "gameId", gameState.getGameId(),
                         "phaseEndTime",
@@ -851,12 +849,11 @@ public class GameService {
     }
 
     private void sendPhaseSwitchMessage(GameState gameState) {
-        messagingTemplate.convertAndSend("/topic/room." + gameState.getRoomId(),
-                Map.of("type", "PHASE_SWITCHED", "game", gameState)); // 이제 GameState를 보내야 함!
+        messageBroadcaster.sendPhaseChange(gameState.getRoomId(), gameState);
     }
 
     private void sendSystemMessage(String roomId, String content) {
-        messagingTemplate.convertAndSend("/topic/room." + roomId, Map.of("type", "SYSTEM", "content", content));
+        messageBroadcaster.sendSystemMessage(roomId, content);
     }
 
     private void sendRoleAssignmentMessage(String playerId, PlayerRole role) {
@@ -879,11 +876,7 @@ public class GameService {
     }
 
     private void sendPrivateMessage(String playerId, Map<String, Object> payload) {
-        try {
-            messagingTemplate.convertAndSend("/topic/private/" + playerId, payload);
-        } catch (Exception e) {
-            log.error("Private msg fail", e);
-        }
+        messageBroadcaster.sendToUser(playerId, payload);
     }
 
     private String getRoleDescription(PlayerRole role) {
