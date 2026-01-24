@@ -1,7 +1,7 @@
 package com.example.mafiagame.game.domain;
 
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
+import java.io.Serializable;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -13,21 +13,14 @@ import lombok.Setter;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class GamePlayerState {
+public class GamePlayerState implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String playerId;
-
     private String playerName;
-
     private PlayerRole role;
+    private Team team;
 
     @Builder.Default
     private boolean isAlive = true;
-
-    @Builder.Default
-    private int voteCount = 0;
-
-    @Enumerated(EnumType.STRING)
-    private Team team;
-
-    private String targetPlayerId;
 }

@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.mafiagame.global.dto.CommonResponse;
 import com.example.mafiagame.global.service.RedisService;
-import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
 import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
@@ -64,12 +64,12 @@ public class UserController {
         }
 
         String userLoginId = authentication.getName();
-        User user = userService.getUserByLoginId(userLoginId);
+        Users users = userService.getUserByLoginId(userLoginId);
 
         Map<String, Object> userInfo = Map.of(
-                "userId", user.getUserId(),
-                "userLoginId", user.getUserLoginId(),
-                "nickname", user.getNickname());
+                "userId", users.getUserId(),
+                "userLoginId", users.getUserLoginId(),
+                "nickname", users.getNickname());
 
         return ResponseEntity.ok(CommonResponse.success(userInfo, "현재 사용자 정보 조회 성공"));
     }

@@ -1,7 +1,7 @@
 package com.example.mafiagame.user.service;
 
 import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
-import com.example.mafiagame.user.repository.UserRepository;
+import com.example.mafiagame.user.repository.UsersRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +24,7 @@ import java.util.Random;
 @Slf4j
 public class IndexPerformanceTest {
 
-    private final UserRepository userRepository;
+    private final UsersRepository userRepository;
 
     @PersistenceContext
     private EntityManager entityManager;

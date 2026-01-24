@@ -9,9 +9,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.mafiagame.global.error.CommonException;
+import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.jwt.RefreshTokenService;
-import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.Users;
 import static com.example.mafiagame.user.domain.UserRole.USER;
 
 import java.util.List;
@@ -22,7 +24,7 @@ import com.example.mafiagame.user.dto.reponse.UserDetailForAdmin;
 import com.example.mafiagame.user.dto.reponse.UserDetailForUser;
 import com.example.mafiagame.user.dto.request.LoginRequest;
 import com.example.mafiagame.user.dto.request.RegistRequest;
-import com.example.mafiagame.user.repository.UserRepository;
+import com.example.mafiagame.user.repository.UsersRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -30,7 +32,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class UserService {
 
-    private final UserRepository userRepository;
+    private final UsersRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
@@ -40,16 +42,11 @@ public class UserService {
     public void registerUser(RegistRequest request) {
         // 중복 사용자명 확인
         if (userRepository.findByUserLoginId(request.userLoginId()).isPresent()) {
-            throw new RuntimeException("이미 존재하는 아이디입니다.");
+            throw new CommonException(ErrorCode.USER_ALREADY_EXISTS);
         }
 
-        User user = User.builder()
-                .userLoginId(request.userLoginId())
-                .userLoginPassword(passwordEncoder.encode(request.userLoginPassword()))
-                .nickname(request.nickname())
-                .userRole(USER)
-                .build();
-        userRepository.save(user);
+        Users users = request.toEntity();
+        userRepository.save(users);
     }
 
     // 유저 로그인 - Access + Refresh Token 반환
@@ -74,22 +71,22 @@ public class UserService {
     // 유저 상세정보 확인 ( 유저용 )
     @Transactional(readOnly = true)
     public UserDetailForUser getUserDetailForUser(Long userId) {
-        User user = userRepository.findById(userId)
+        Users users = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("해당 ID의 사용자를 찾을 수 없습니다: " + userId));
-        return new UserDetailForUser(user.getNickname());
+        return new UserDetailForUser(users.getNickname());
     }
 
     // 유저 상세정보 ( 관리자용 )
     @Transactional(readOnly = true)
     public UserDetailForAdmin getUserDetailForAdmin(Long userId) {
-        User user = userRepository.findById(userId)
+        Users users = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("해당 ID의 사용자를 찾을 수 없습니다: " + userId));
-        return new UserDetailForAdmin(user);
+        return new UserDetailForAdmin(users);
     }
 
     // userLoginId로 사용자 조회
     @Transactional(readOnly = true)
-    public User getUserByLoginId(String userLoginId) {
+    public Users getUserByLoginId(String userLoginId) {
         return userRepository.findByUserLoginId(userLoginId)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + userLoginId));
     }
@@ -97,14 +94,14 @@ public class UserService {
     @Transactional
     @CacheEvict(value = "userDetails", key = "#userLoginId")
     public void updatePassword(String userLoginId, String currentPassword, String newPassword) {
-        User user = getUserByLoginId(userLoginId);
+        Users users = getUserByLoginId(userLoginId);
 
-        if (!passwordEncoder.matches(currentPassword, user.getUserLoginPassword())) {
+        if (!passwordEncoder.matches(currentPassword, users.getUserLoginPassword())) {
             throw new RuntimeException("현재 비밀번호가 일치하지 않습니다.");
         }
 
         String encodedNewPassword = passwordEncoder.encode(newPassword);
-        user.updateUserLoginPassword(encodedNewPassword);
+        users.updateUserLoginPassword(encodedNewPassword);
     }
 
     @Transactional
@@ -112,13 +109,13 @@ public class UserService {
         for (int i = 1; i <= count; i++) {
             String dummyId = "dummy" + i;
             if (userRepository.findByUserLoginId(dummyId).isEmpty()) {
-                User user = User.builder()
+                Users users = Users.builder()
                         .userLoginId(dummyId)
                         .userLoginPassword(passwordEncoder.encode("password1234!"))
                         .nickname("dummy" + i)
                         .userRole(USER)
                         .build();
-                userRepository.save(user);
+                userRepository.save(users);
             }
         }
     }
