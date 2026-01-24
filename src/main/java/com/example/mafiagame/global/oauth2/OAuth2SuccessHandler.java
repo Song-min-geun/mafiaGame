@@ -27,7 +27,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             Authentication authentication) throws IOException, ServletException {
 
         CustomOAuth2User oAuth2User = (CustomOAuth2User) authentication.getPrincipal();
-        String userLoginId = oAuth2User.getUser().getUserLoginId();
+        String userLoginId = oAuth2User.getUsers().getUserLoginId();
 
         // JWT 토큰 생성
         String accessToken = jwtUtil.generateAccessToken(userLoginId);

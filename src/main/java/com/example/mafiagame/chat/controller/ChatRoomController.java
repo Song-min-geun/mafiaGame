@@ -32,6 +32,9 @@ public class ChatRoomController {
         return null;
     }
 
+    /*
+     * 메시지 전송
+     */
     @MessageMapping("/chat.sendMessage")
     public void sendMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
@@ -42,6 +45,9 @@ public class ChatRoomController {
         chatRoomService.processAndBroadcastMessage(chatMessage, principal.getName());
     }
 
+    /*
+     * 개인 메시지 전송
+     */
     @MessageMapping("/chat.sendPrivateMessage")
     public void sendPrivateMessage(@Payload ChatMessage chatMessage, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
@@ -52,6 +58,9 @@ public class ChatRoomController {
         chatRoomService.processAndPrivateMessage(chatMessage, principal.getName());
     }
 
+    /*
+     * 채팅방 참여
+     */
     @MessageMapping("/room.join")
     public void joinRoom(@Payload Map<String, Object> payload, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
@@ -63,6 +72,9 @@ public class ChatRoomController {
         chatRoomService.userJoin(new JoinRoomRequest(roomId, principal.getName()));
     }
 
+    /*
+     * 채팅방 탈퇴
+     */
     @MessageMapping("/room.leave")
     public void leaveRoom(@Payload Map<String, Object> payload, SimpMessageHeaderAccessor accessor) {
         Principal principal = getPrincipal(accessor);
@@ -74,6 +86,9 @@ public class ChatRoomController {
         chatRoomService.userLeave(LeaveRoomRequest.of(roomId, principal.getName()));
     }
 
+    /*
+     * WebSocket 연결 해제
+     */
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());

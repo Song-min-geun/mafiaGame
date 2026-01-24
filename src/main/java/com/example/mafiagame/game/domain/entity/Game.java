@@ -1,4 +1,4 @@
-package com.example.mafiagame.game.domain;
+package com.example.mafiagame.game.domain.entity;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -17,6 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import com.example.mafiagame.game.domain.GameStatus;
+import com.example.mafiagame.game.domain.Team;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity

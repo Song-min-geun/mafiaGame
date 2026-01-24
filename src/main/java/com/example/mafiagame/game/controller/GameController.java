@@ -1,10 +1,9 @@
 package com.example.mafiagame.game.controller;
 
-import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.PlayerRole;
-
+import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.SuggestionService;
 import lombok.RequiredArgsConstructor;

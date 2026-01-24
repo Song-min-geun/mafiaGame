@@ -6,9 +6,9 @@ import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.domain.UserRole;
-import com.example.mafiagame.user.repository.UserRepository;
+import com.example.mafiagame.user.repository.UsersRepository;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ class MafiagameApplicationTests {
     private GameService gameService;
 
     @Autowired
-    private UserRepository userRepository;
+    private UsersRepository userRepository;
 
     @Autowired
     private ChatRoomService chatRoomService;
@@ -42,7 +42,7 @@ class MafiagameApplicationTests {
 
         // 첫 번째 유저를 방장으로 생성
         String hostLoginId = "user0";
-        User host = User.builder()
+        Users host = Users.builder()
                 .userLoginId(hostLoginId)
                 .nickname("player0")
                 .userLoginPassword("pw")
@@ -51,19 +51,19 @@ class MafiagameApplicationTests {
         userRepository.save(host);
 
         // 채팅방 생성 (방장이 생성)
-        ChatRoom chatRoom = chatRoomService.createRoom(new CreateRoomRequest("test-room", hostLoginId));
+        ChatRoom chatRoom = chatRoomService.createRoom(new CreateRoomRequest("test-room"), hostLoginId);
         String roomId = chatRoom.getRoomId();
 
         // 나머지 유저 생성 및 채팅방 참여
         for (int i = 1; i < threadCount; i++) {
             String loginId = "user" + i;
-            User user = User.builder()
+            Users users = Users.builder()
                     .userLoginId(loginId)
                     .nickname("player" + i)
                     .userLoginPassword("pw")
                     .userRole(UserRole.USER)
                     .build();
-            userRepository.save(user);
+            userRepository.save(users);
 
             chatRoomService.userJoin(new JoinRoomRequest(roomId, loginId));
         }
