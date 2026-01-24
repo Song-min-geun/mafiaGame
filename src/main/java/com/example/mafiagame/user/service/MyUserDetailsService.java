@@ -8,8 +8,8 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import com.example.mafiagame.user.domain.User;
-import com.example.mafiagame.user.repository.UserRepository;
+import com.example.mafiagame.user.domain.Users;
+import com.example.mafiagame.user.repository.UsersRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -17,19 +17,19 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MyUserDetailsService implements UserDetailsService {
 
-    private final UserRepository userRepository;
+    private final UsersRepository usersRepository;
 
     @Override
     @Cacheable(value = "userDetails", key = "#userLoginId", unless = "#result == null")
     public UserDetails loadUserByUsername(String userLoginId) throws UsernameNotFoundException {
-        User user = userRepository.findByUserLoginId(userLoginId)
+        Users users = usersRepository.findByUserLoginId(userLoginId)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with loginId: " + userLoginId));
 
-        String role = user.getUserRole().getRoleName();
+        String role = users.getUserRole().getRoleName();
 
         return CustomUserDetails.builder()
-                .username(user.getUserLoginId())
-                .password(user.getUserLoginPassword())
+                .username(users.getUserLoginId())
+                .password(users.getUserLoginPassword())
                 .roles(Collections.singletonList(role))
                 .build();
     }

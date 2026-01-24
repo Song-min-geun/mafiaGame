@@ -1,7 +1,8 @@
 package com.example.mafiagame.global.service;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
-import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.entity.Game;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;

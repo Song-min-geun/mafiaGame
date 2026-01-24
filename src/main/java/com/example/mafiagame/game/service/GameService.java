@@ -1,16 +1,13 @@
 package com.example.mafiagame.game.service;
 
-import com.example.mafiagame.game.domain.Game;
-import com.example.mafiagame.game.domain.GamePlayer;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.GamePlayerState;
 import com.example.mafiagame.game.domain.GameStatus;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.PlayerRole;
 import com.example.mafiagame.game.domain.Team;
-import com.example.mafiagame.game.domain.Vote;
-import com.example.mafiagame.game.domain.FinalVote;
-import com.example.mafiagame.game.domain.NightAction;
+import com.example.mafiagame.game.domain.entity.Game;
+import com.example.mafiagame.game.domain.entity.GamePlayer;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
@@ -20,8 +17,8 @@ import com.example.mafiagame.game.strategy.RoleActionStrategy;
 import com.example.mafiagame.game.strategy.NightActionResult;
 import com.example.mafiagame.game.state.GamePhaseFactory;
 import com.example.mafiagame.game.state.GamePhaseState;
-import com.example.mafiagame.user.domain.User;
-import com.example.mafiagame.user.repository.UserRepository;
+import com.example.mafiagame.user.domain.Users;
+import com.example.mafiagame.user.repository.UsersRepository;
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.error.ErrorCode;
@@ -31,7 +28,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
@@ -52,7 +48,7 @@ public class GameService {
 
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
-    private final UserRepository userRepository;
+    private final UsersRepository userRepository;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
@@ -61,63 +57,9 @@ public class GameService {
     private final GamePhaseFactory gamePhaseFactory;
     private final ChatRoomService chatRoomService;
 
-    private static final String GAME_STATE_KEY_PREFIX = "game:state:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
-
-    private static final String VOTE_LUA_SCRIPT = """
-            local gameStateKey = KEYS[1]
-            local votesKey = KEYS[2]
-            local voterId = ARGV[1]
-            local targetId = ARGV[2]
-
-            -- 게임 상태 존재 확인
-            local exists = redis.call('EXISTS', gameStateKey)
-            if exists == 0 then
-                return 'ERROR:GAME_NOT_FOUND'
-            end
-
-            -- 투표 저장 (Hash: voterId -> targetId)
-            redis.call('HSET', votesKey, voterId, targetId)
-            redis.call('EXPIRE', votesKey, 1800)
-
-            return 'OK'
-            """;
-
-    private static final String FINAL_VOTE_LUA_SCRIPT = """
-            local gameStateKey = KEYS[1]
-            local finalVotesKey = KEYS[2]
-            local voterId = ARGV[1]
-            local voteChoice = ARGV[2]
-
-            local exists = redis.call('EXISTS', gameStateKey)
-            if exists == 0 then
-                return 'ERROR:GAME_NOT_FOUND'
-            end
-
-            redis.call('HSET', finalVotesKey, voterId, voteChoice)
-            redis.call('EXPIRE', finalVotesKey, 1800)
-
-            return 'OK'
-            """;
-
-    private static final String NIGHT_ACTION_LUA_SCRIPT = """
-            local gameStateKey = KEYS[1]
-            local nightActionsKey = KEYS[2]
-            local actorId = ARGV[1]
-            local targetId = ARGV[2]
-
-            local exists = redis.call('EXISTS', gameStateKey)
-            if exists == 0 then
-                return 'ERROR:GAME_NOT_FOUND'
-            end
-
-            redis.call('HSET', nightActionsKey, actorId, targetId)
-            redis.call('EXPIRE', nightActionsKey, 1800)
-
-            return 'OK'
-            """;
 
     @Transactional
     public GameState createGame(String roomId) {
@@ -146,9 +88,9 @@ public class GameService {
         List<String> playerIds = participants.stream()
                 .map(ChatUser::getUserId)
                 .toList();
-        Map<String, User> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
+        Map<String, Users> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
                 .stream()
-                .collect(Collectors.toMap(User::getUserLoginId, u -> u));
+                .collect(Collectors.toMap(Users::getUserLoginId, u -> u));
 
         // MySQL: 이력 저장용 Entity 생성
         Game game = Game.builder()
@@ -159,7 +101,7 @@ public class GameService {
                 .build();
 
         List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
-            User user = userMap.get(participant.getUserId());
+            Users user = userMap.get(participant.getUserId());
             if (user == null) {
                 throw new RuntimeException("User not found: " + participant.getUserId());
             }
@@ -182,14 +124,11 @@ public class GameService {
                 .gamePhase(GamePhase.NIGHT_ACTION)
                 .currentPhase(0)
                 .players(participants.stream().map(participant -> {
-                    User user = userMap.get(participant.getUserId());
+                    Users user = userMap.get(participant.getUserId());
                     return GamePlayerState.builder()
                             .playerId(user.getUserLoginId())
                             .playerName(user.getNickname())
                             .isAlive(true)
-                            .voteCount(0)
-                            .team(null)
-                            .targetPlayerId(null)
                             .build();
                 }).collect(Collectors.toList()))
                 .build();
@@ -292,9 +231,9 @@ public class GameService {
                 .filter(id -> id != null)
                 .toList();
 
-        List<User> users = userRepository.findAllByUserLoginIdIn(playerIds);
-        Map<String, User> userMap = users.stream()
-                .collect(Collectors.toMap(User::getUserLoginId, u -> u));
+        List<Users> users = userRepository.findAllByUserLoginIdIn(playerIds);
+        Map<String, Users> userMap = users.stream()
+                .collect(Collectors.toMap(Users::getUserLoginId, u -> u));
 
         // 각 플레이어의 전적 업데이트
         boolean isCitizenWin = "CITIZEN".equals(winner);
@@ -302,7 +241,7 @@ public class GameService {
             if (gp.getPlayerId() == null)
                 continue;
 
-            User user = userMap.get(gp.getPlayerId());
+            Users user = userMap.get(gp.getPlayerId());
             if (user == null)
                 continue;
 
@@ -388,9 +327,7 @@ public class GameService {
     }
 
     /**
-     * 투표 (Lua Script 기반 원자적 처리)
-     * 
-     * 동시에 여러 플레이어가 투표해도 데이터 유실 없이 처리됩니다.
+     * 투표 (Redis Hash 저장)
      */
     public void vote(String gameId, String voterId, String targetId) {
         GameState gameState = getGameState(gameId);
@@ -400,28 +337,18 @@ public class GameService {
         if (findActivePlayerById(gameState, voterId) == null)
             return;
 
-        // Lua Script로 원자적 투표 저장
-        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
         String votesKey = VOTE_KEY_PREFIX + gameId;
-
-        DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setScriptText(VOTE_LUA_SCRIPT);
-        script.setResultType(String.class);
-
         try {
-            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, votesKey), voterId, targetId);
-            if ("OK".equals(result)) {
-                log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
-            } else {
-                log.warn("[투표] 실패: gameId={}, result={}", gameId, result);
-            }
+            stringRedisTemplate.opsForHash().put(votesKey, voterId, targetId);
+            stringRedisTemplate.expire(votesKey, java.time.Duration.ofMinutes(30));
+            log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
         } catch (Exception e) {
-            log.error("[투표] Lua Script 오류: gameId={}", gameId, e);
+            log.error("[투표] 오류: gameId={}", gameId, e);
         }
     }
 
     /**
-     * 최종 투표 (Lua Script 기반 원자적 처리)
+     * 최종 투표 (Redis Hash 저장)
      */
     public void finalVote(String gameId, String voterId, String voteChoice) {
         GameState gameState = getGameState(gameId);
@@ -432,28 +359,18 @@ public class GameService {
         if (findActivePlayerById(gameState, voterId) == null || voterId.equals(gameState.getVotedPlayerId()))
             return;
 
-        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
         String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
-
-        DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setScriptText(FINAL_VOTE_LUA_SCRIPT);
-        script.setResultType(String.class);
-
         try {
-            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, finalVotesKey), voterId,
-                    voteChoice);
-            if ("OK".equals(result)) {
-                log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
-            } else {
-                log.warn("[최종투표] 실패: gameId={}, result={}", gameId, result);
-            }
+            stringRedisTemplate.opsForHash().put(finalVotesKey, voterId, voteChoice);
+            stringRedisTemplate.expire(finalVotesKey, java.time.Duration.ofMinutes(30));
+            log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
         } catch (Exception e) {
-            log.error("[최종투표] Lua Script 오류: gameId={}", gameId, e);
+            log.error("[최종투표] 오류: gameId={}", gameId, e);
         }
     }
 
     /**
-     * 밤 행동 (Lua Script 기반 원자적 처리)
+     * 밤 행동 (Redis Hash 저장)
      */
     public void nightAction(String gameId, String actorId, String targetId) {
         GameState gameState = getGameState(gameId);
@@ -464,30 +381,20 @@ public class GameService {
         if (actor == null || actor.getRole() == PlayerRole.CITIZEN)
             return;
 
-        String gameStateKey = GAME_STATE_KEY_PREFIX + gameId;
         String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
-
-        DefaultRedisScript<String> script = new DefaultRedisScript<>();
-        script.setScriptText(NIGHT_ACTION_LUA_SCRIPT);
-        script.setResultType(String.class);
-
         try {
-            String result = stringRedisTemplate.execute(script, List.of(gameStateKey, nightActionsKey), actorId,
-                    targetId);
-            if ("OK".equals(result)) {
-                log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
+            stringRedisTemplate.opsForHash().put(nightActionsKey, actorId, targetId);
+            stringRedisTemplate.expire(nightActionsKey, java.time.Duration.ofMinutes(30));
+            log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
 
-                // 경찰은 즉시 결과 확인
-                if (actor.getRole() == PlayerRole.POLICE) {
-                    GamePlayerState target = findPlayerById(gameState, targetId);
-                    if (target != null)
-                        sendPoliceInvestigationResult(actor, target);
-                }
-            } else {
-                log.warn("[밤행동] 실패: gameId={}, result={}", gameId, result);
+            // 경찰은 즉시 결과 확인
+            if (actor.getRole() == PlayerRole.POLICE) {
+                GamePlayerState target = findPlayerById(gameState, targetId);
+                if (target != null)
+                    sendPoliceInvestigationResult(actor, target);
             }
         } catch (Exception e) {
-            log.error("[밤행동] Lua Script 오류: gameId={}", gameId, e);
+            log.error("[밤행동] 오류: gameId={}", gameId, e);
         }
     }
 
@@ -520,8 +427,6 @@ public class GameService {
         }
         return true;
     }
-
-    // --- Helper Methods ---
 
     private void toPhase(GameState gameState, GamePhase phase, int durationSeconds) {
         gameState.setGamePhase(phase);
@@ -573,8 +478,11 @@ public class GameService {
         // Redis Hash에서 최종 투표 동기화
         syncFinalVotesFromRedis(gameState);
 
-        long agree = gameState.getFinalVotes().stream().filter(v -> "AGREE".equals(v.getVote())).count();
-        long disagree = gameState.getFinalVotes().stream().filter(v -> "DISAGREE".equals(v.getVote())).count();
+        // Map의 values를 사용하여 찬반 카운트
+        long agree = gameState.getFinalVotes().values().stream()
+                .filter(vote -> "AGREE".equals(vote)).count();
+        long disagree = gameState.getFinalVotes().values().stream()
+                .filter(vote -> "DISAGREE".equals(vote)).count();
 
         if (agree > disagree) {
             findPlayerById(gameState, gameState.getVotedPlayerId(), player -> {
@@ -609,10 +517,7 @@ public class GameService {
         try {
             var votes = stringRedisTemplate.opsForHash().entries(votesKey);
             gameState.getVotes().clear();
-            votes.forEach((voterId, targetId) -> gameState.getVotes().add(Vote.builder()
-                    .voterId((String) voterId)
-                    .targetId((String) targetId)
-                    .build()));
+            votes.forEach((voterId, targetId) -> gameState.getVotes().put((String) voterId, (String) targetId));
             log.debug("[동기화] 투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
         } catch (Exception e) {
             log.error("[동기화] 투표 로드 실패: gameId={}", gameState.getGameId(), e);
@@ -624,10 +529,8 @@ public class GameService {
         try {
             var votes = stringRedisTemplate.opsForHash().entries(finalVotesKey);
             gameState.getFinalVotes().clear();
-            votes.forEach((voterId, voteChoice) -> gameState.getFinalVotes().add(FinalVote.builder()
-                    .voterId((String) voterId)
-                    .vote((String) voteChoice)
-                    .build()));
+            votes.forEach(
+                    (voterId, voteChoice) -> gameState.getFinalVotes().put((String) voterId, (String) voteChoice));
             log.debug("[동기화] 최종투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
         } catch (Exception e) {
             log.error("[동기화] 최종투표 로드 실패: gameId={}", gameState.getGameId(), e);
@@ -639,10 +542,8 @@ public class GameService {
         try {
             var actions = stringRedisTemplate.opsForHash().entries(nightActionsKey);
             gameState.getNightActions().clear();
-            actions.forEach((actorId, targetId) -> gameState.getNightActions().add(NightAction.builder()
-                    .actorId((String) actorId)
-                    .targetId((String) targetId)
-                    .build()));
+            actions.forEach(
+                    (actorId, targetId) -> gameState.getNightActions().put((String) actorId, (String) targetId));
             log.debug("[동기화] 밤행동 {}건 로드: gameId={}", actions.size(), gameState.getGameId());
         } catch (Exception e) {
             log.error("[동기화] 밤행동 로드 실패: gameId={}", gameState.getGameId(), e);
@@ -662,12 +563,14 @@ public class GameService {
     }
 
     private void processNightActions(GameState gameState) {
-        // Strategy Pattern: 역할에 맞는 전략을 Factory에서 가져와 실행
         List<NightActionResult> results = new ArrayList<>();
 
-        for (NightAction action : gameState.getNightActions()) {
-            GamePlayerState actor = findPlayerById(gameState, action.getActorId());
-            GamePlayerState target = findPlayerById(gameState, action.getTargetId());
+        for (Map.Entry<String, String> action : gameState.getNightActions().entrySet()) {
+            String actorId = action.getKey();
+            String targetId = action.getValue();
+
+            GamePlayerState actor = findPlayerById(gameState, actorId);
+            GamePlayerState target = findPlayerById(gameState, targetId);
 
             if (actor == null || target == null)
                 continue;
@@ -788,20 +691,13 @@ public class GameService {
         return gameState.canPlayerChat(playerId);
     }
 
-    private List<String> getTopVotedPlayers(List<Vote> votes) {
+    private List<String> getTopVotedPlayers(Map<String, String> votes) {
         if (votes == null || votes.isEmpty())
             return new ArrayList<>();
-        Map<String, Long> counts = votes.stream()
-                .collect(Collectors.groupingBy(Vote::getTargetId, Collectors.counting()));
+        // votes: voterId -> targetId, values()로 targetId 집계
+        Map<String, Long> counts = votes.values().stream()
+                .collect(Collectors.groupingBy(targetId -> targetId, Collectors.counting()));
         if (counts.isEmpty())
-            return new ArrayList<>();
-        long max = Collections.max(counts.values());
-        return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();
-    }
-
-    // 오버로딩: Map 입력 (미사용 - 추후 삭제 고려)
-    private List<String> getTopVotedPlayers(Map<String, Long> counts) {
-        if (counts == null || counts.isEmpty())
             return new ArrayList<>();
         long max = Collections.max(counts.values());
         return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();

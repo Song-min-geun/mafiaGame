@@ -1,8 +1,9 @@
 package com.example.mafiagame.game.repository;
 
-import com.example.mafiagame.game.domain.Game;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+
+import com.example.mafiagame.game.domain.entity.Game;
 
 import java.util.Optional;
 
