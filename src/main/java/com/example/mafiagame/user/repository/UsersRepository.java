@@ -9,16 +9,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import com.example.mafiagame.user.domain.AuthProvider;
-import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
 
 @Repository
-public interface UserRepository extends JpaRepository<User, Long> {
-    Optional<User> findByUserLoginId(String userLoginId);
+public interface UsersRepository extends JpaRepository<Users, Long> {
+    Optional<Users> findByUserLoginId(String userLoginId);
 
-    Optional<User> findByProviderAndProviderId(AuthProvider provider, String providerId);
+    Optional<Users> findByProviderAndProviderId(AuthProvider provider, String providerId);
 
-    List<User> findAllByUserLoginIdIn(List<String> userLoginIds);
+    List<Users> findAllByUserLoginIdIn(List<String> userLoginIds);
 
     @Query("SELECT new com.example.mafiagame.user.dto.reponse.Top10UserResponse(" +
             "u.nickname, u.winRate, u.playCount) " +

@@ -11,6 +11,7 @@ public enum ErrorCode {
     GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "GAME_NOT_FOUND", "Game Not Found"),
     GAMESTATE_NOT_FOUND(HttpStatus.NOT_FOUND, "GAMESTATE_NOT_FOUND", "Game State Not Found"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User Not Found"),
+    USER_ALREADY_EXISTS(HttpStatus.BAD_REQUEST, "USER_ALREADY_EXISTS", "User Already Exists"),
     ;
 
     private final String code;
