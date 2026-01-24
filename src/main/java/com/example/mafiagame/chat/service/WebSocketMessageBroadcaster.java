@@ -1,7 +1,6 @@
 package com.example.mafiagame.chat.service;
 
 import com.example.mafiagame.chat.dto.ChatMessage;
-import com.example.mafiagame.chat.dto.MessageType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
@@ -37,14 +36,7 @@ public class WebSocketMessageBroadcaster {
      * 시스템 메시지 전송 (방 전체)
      */
     public void sendSystemMessage(String roomId, String content) {
-        ChatMessage message = ChatMessage.builder()
-                .type(MessageType.SYSTEM)
-                .roomId(roomId)
-                .senderId("SYSTEM")
-                .senderName("시스템")
-                .content(content)
-                .timestamp(System.currentTimeMillis())
-                .build();
+        ChatMessage message = ChatMessage.system(roomId, content);
         broadcastToRoom(roomId, message);
     }
 

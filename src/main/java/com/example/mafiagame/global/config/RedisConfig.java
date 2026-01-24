@@ -1,7 +1,7 @@
 package com.example.mafiagame.global.config;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
-import com.example.mafiagame.game.domain.Game;
+import com.example.mafiagame.game.domain.entity.Game;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;

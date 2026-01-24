@@ -6,21 +6,20 @@ import com.example.mafiagame.chat.dto.MessageType;
 import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
 import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.dto.request.LeaveRoomRequest;
-import com.example.mafiagame.game.domain.Game;
 import com.example.mafiagame.game.domain.GamePhase;
 import com.example.mafiagame.game.domain.GameState;
 import com.example.mafiagame.game.domain.PlayerRole;
+import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.game.repository.GameStateRepository;
-import com.example.mafiagame.user.domain.User;
+import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +51,7 @@ public class ChatRoomService {
     // ================== 메시지 처리 ================== //
 
     public void processAndBroadcastMessage(ChatMessage chatMessage, String senderId) {
-        User sender = userService.getUserByLoginId(senderId);
+        Users sender = userService.getUserByLoginId(senderId);
 
         // 보안을 위해 발신자 정보 서버에서 설정
         chatMessage.setSenderId(sender.getUserLoginId());
@@ -155,7 +154,7 @@ public class ChatRoomService {
             return;
         }
 
-        User sender = userService.getUserByLoginId(senderId);
+        Users sender = userService.getUserByLoginId(senderId);
         chatMessage.setSenderId(sender.getUserLoginId());
         chatMessage.setSenderName(sender.getNickname());
 
@@ -164,8 +163,8 @@ public class ChatRoomService {
 
     // ================== 채팅방 및 사용자 관리 ================== //
 
-    public ChatRoom createRoom(CreateRoomRequest request) {
-        User host = userService.getUserByLoginId(request.hostId());
+    public ChatRoom createRoom(CreateRoomRequest request, String hostId) {
+        Users host = userService.getUserByLoginId(hostId);
         ChatRoom room = request.toEntity(host);
 
         room.addParticipant(request.toHostParticipant(host));
@@ -180,31 +179,25 @@ public class ChatRoomService {
             return;
         }
 
-        User user = userService.getUserByLoginId(request.userId());
+        Users user = userService.getUserByLoginId(request.userId());
         room.addParticipant(request.toParticipant(user));
 
-        String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
+        saveRoom(room);
 
-        ChatMessage joinMessage = ChatMessage.builder()
-                .type(MessageType.USER_JOINED)
-                .roomId(request.roomId())
-                .roomName(room.getRoomName())
-                .content(content)
-                .data(Map.of("room", room))
-                .build();
+        String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
+        ChatMessage joinMessage = ChatMessage.userJoined(room, content);
 
         messageBroadcaster.broadcastToRoom(request.roomId(), joinMessage);
         messageBroadcaster.notifyRoomListUpdated();
     }
 
     // 방 hostId와 userId와 비교하여 메세지 전달
-    private String createJoinMessage(User user, boolean isHost) {
+    private String createJoinMessage(Users user, boolean isHost) {
         return isHost
                 ? user.getNickname() + "님이 방을 개설하였습니다."
                 : user.getNickname() + "님이 입장하였습니다.";
     }
 
-    @Transactional
     public void userLeave(LeaveRoomRequest request) {
         ChatRoom room = getRoom(request.roomId());
         if (room == null)
@@ -221,25 +214,28 @@ public class ChatRoomService {
         if (leftUserName == null)
             return; // 방에 없는 유저가 나가는 경우
 
-        if (room.getParticipants().size() > 1) {
-            ChatMessage leaveMessage = ChatMessage.builder()
-                    .type(MessageType.USER_LEFT)
-                    .roomId(request.roomId())
-                    .senderId("SYSTEM")
-                    .senderName("시스템")
-                    .content(leftUserName + "님이 나갔습니다.")
-                    .data(Map.of("room", room)) // 참가자 목록 대신 방 전체 정보 전송
-                    .build();
-            messageBroadcaster.broadcastToRoom(request.roomId(), leaveMessage);
-        } else {
+        if (room.getParticipants().isEmpty()) {
+            // 아무도 없으면 방 삭제
             deleteRoom(request.roomId());
+        } else {
+            // Redis에 변경된 방 정보 저장
+            saveRoom(room);
+            ChatMessage leaveMessage = ChatMessage.userLeft(room, leftUserName);
+            messageBroadcaster.broadcastToRoom(request.roomId(), leaveMessage);
         }
         messageBroadcaster.notifyRoomListUpdated();
+    }
+
+    // 방 저장
+    private void saveRoom(ChatRoom room) {
+        chatRoomRedisTemplate.opsForValue().set(ROOM_KEY_PREFIX + room.getRoomId(), room);
     }
 
     // 방 삭제
     private void deleteRoom(String roomId) {
         chatRoomRedisTemplate.delete(ROOM_KEY_PREFIX + roomId);
+        // 채팅 로그도 함께 삭제
+        stringRedisTemplate.delete(CHAT_LOG_PREFIX + roomId);
     }
 
     public void handleDisconnect(String userId) {
@@ -279,6 +275,20 @@ public class ChatRoomService {
     }
 
     // ================== 헬퍼 메소드 ================== //
+
+    /**
+     * 키워드로 채팅방 검색
+     */
+    public List<ChatRoom> searchRooms(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return getAllRooms();
+        }
+
+        String lowerKeyword = keyword.toLowerCase();
+        return getAllRooms().stream()
+                .filter(room -> room.getRoomName().toLowerCase().contains(lowerKeyword))
+                .toList();
+    }
 
     private void sendErrorMessageToUser(String userId, String errorMessage) {
         messageBroadcaster.sendError(userId, errorMessage);
