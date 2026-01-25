@@ -6,10 +6,10 @@ import com.example.mafiagame.chat.dto.MessageType;
 import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
 import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.dto.request.LeaveRoomRequest;
-import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GameState;
-import com.example.mafiagame.game.domain.PlayerRole;
 import com.example.mafiagame.game.domain.entity.Game;
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.game.repository.GameStateRepository;
@@ -272,6 +272,22 @@ public class ChatRoomService {
                 .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    /**
+     * 유저가 현재 참여 중인 ChatRoom 조회
+     */
+    public ChatRoom findRoomByUserId(String userId) {
+        Set<String> keys = chatRoomRedisTemplate.keys(ROOM_KEY_PREFIX + "*");
+        if (keys == null)
+            return null;
+
+        return keys.stream()
+                .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
+                .filter(Objects::nonNull)
+                .filter(room -> room.isParticipant(userId))
+                .findFirst()
+                .orElse(null);
     }
 
     // ================== 헬퍼 메소드 ================== //

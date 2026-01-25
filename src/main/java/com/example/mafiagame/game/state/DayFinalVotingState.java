@@ -1,8 +1,9 @@
 package com.example.mafiagame.game.state;
 
-import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GameState;
 import org.springframework.stereotype.Component;
+
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GameState;
 
 /**
  * 최종 투표 (찬반) 페이즈 상태
