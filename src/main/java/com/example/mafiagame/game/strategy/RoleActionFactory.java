@@ -1,8 +1,9 @@
 package com.example.mafiagame.game.strategy;
 
-import com.example.mafiagame.game.domain.PlayerRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import com.example.mafiagame.game.domain.state.PlayerRole;
 
 /**
  * 역할별 전략을 제공하는 Factory

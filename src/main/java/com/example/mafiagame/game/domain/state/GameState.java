@@ -1,4 +1,4 @@
-package com.example.mafiagame.game.domain;
+package com.example.mafiagame.game.domain.state;
 
 import java.io.Serializable;
 import java.util.ArrayList;

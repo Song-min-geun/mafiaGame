@@ -1,4 +1,4 @@
-package com.example.mafiagame.game.domain;
+package com.example.mafiagame.game.domain.state;
 
 public enum GamePhase {
     DAY_DISCUSSION, // 낮 대화

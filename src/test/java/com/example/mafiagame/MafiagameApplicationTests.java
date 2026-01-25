@@ -4,7 +4,7 @@ import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
 import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.service.ChatRoomService;
-import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.domain.UserRole;

@@ -1,14 +1,13 @@
 package com.example.mafiagame.game.service;
 
-import com.example.mafiagame.game.domain.GameState;
-import com.example.mafiagame.game.domain.GamePlayerState;
-import com.example.mafiagame.game.domain.GameStatus;
-import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.PlayerRole;
-import com.example.mafiagame.game.domain.Team;
 import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.domain.entity.GamePlayer;
-
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GamePlayerState;
+import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.domain.state.GameStatus;
+import com.example.mafiagame.game.domain.state.PlayerRole;
+import com.example.mafiagame.game.domain.state.Team;
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
 import com.example.mafiagame.chat.service.ChatRoomService;
@@ -52,7 +51,7 @@ public class GameService {
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     @Lazy
-    private final TimerService timerService;
+    private final SchedulerTimerService timerService;
     private final RoleActionFactory roleActionFactory;
     private final GamePhaseFactory gamePhaseFactory;
     private final ChatRoomService chatRoomService;
