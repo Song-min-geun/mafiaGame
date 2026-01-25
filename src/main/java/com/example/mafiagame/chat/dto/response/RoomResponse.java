@@ -11,8 +11,7 @@ public record RoomResponse(
         String hostId,
         String hostName,
         List<ParticipantInfo> participants,
-        int maxPlayers,
-        boolean isPlaying) {
+        int maxPlayers) {
     public static RoomResponse from(ChatRoom room) {
         return new RoomResponse(
                 room.getRoomId(),
@@ -22,8 +21,7 @@ public record RoomResponse(
                 room.getParticipants().stream()
                         .map(ParticipantInfo::from)
                         .toList(),
-                room.getMaxPlayers(),
-                room.isPlaying());
+                room.getMaxPlayers());
     }
 
     public record ParticipantInfo(String userId, String userName, boolean isHost) {

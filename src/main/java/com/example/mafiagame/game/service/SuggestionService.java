@@ -1,9 +1,8 @@
 package com.example.mafiagame.game.service;
 
-import com.example.mafiagame.game.domain.GamePhase;
-import com.example.mafiagame.game.domain.GameState;
-import com.example.mafiagame.game.domain.PlayerRole;
-
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.client.GeminiApiClient;
 import lombok.RequiredArgsConstructor;

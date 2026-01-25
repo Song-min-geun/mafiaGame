@@ -1,4 +1,4 @@
-package com.example.mafiagame.game.domain;
+package com.example.mafiagame.game.domain.state;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -27,7 +27,7 @@ public class GameState implements Serializable {
     private String roomName;
 
     @Builder.Default
-    private GameStatus status = GameStatus.WAITING;
+    private GameStatus status = GameStatus.IN_PROGRESS;
 
     @Builder.Default
     private GamePhase gamePhase = GamePhase.NIGHT_ACTION;
@@ -140,5 +140,15 @@ public class GameState implements Serializable {
                 .filter(e -> e.getValue() == max)
                 .map(Map.Entry::getKey)
                 .toList();
+    }
+
+    public boolean canExtendVotingTime(String playerId) {
+        if (gamePhase != GamePhase.DAY_VOTING) {
+            return false;
+        }
+        if (!isPlayerAlive(playerId)) {
+            return false;
+        }
+        return !Boolean.TRUE.equals(votingTimeExtensionsUsed.get(playerId));
     }
 }
