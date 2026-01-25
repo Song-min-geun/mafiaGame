@@ -1,8 +1,9 @@
 package com.example.mafiagame.game.state;
 
-import com.example.mafiagame.game.domain.GamePhase;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import com.example.mafiagame.game.domain.state.GamePhase;
 
 /**
  * 페이즈별 상태를 제공하는 Factory

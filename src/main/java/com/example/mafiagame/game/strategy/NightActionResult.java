@@ -1,6 +1,7 @@
 package com.example.mafiagame.game.strategy;
 
-import com.example.mafiagame.game.domain.PlayerRole;
+import com.example.mafiagame.game.domain.state.PlayerRole;
+
 import lombok.Builder;
 import lombok.Getter;
 

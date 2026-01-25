@@ -1,6 +1,7 @@
 package com.example.mafiagame.game.dto;
 
-import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.state.GameState;
+
 import lombok.Getter;
 import lombok.Setter;
 

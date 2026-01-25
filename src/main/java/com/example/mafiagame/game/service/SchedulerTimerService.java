@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
-import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.repository.GameStateRepository;
 
 import java.time.Instant;
@@ -15,7 +15,7 @@ import java.util.concurrent.ScheduledFuture;
 
 @Slf4j
 @Service
-public class SchedulerTimerService implements TimerService {
+public class SchedulerTimerService {
 
     private final TaskScheduler taskScheduler;
     private final GameService gameService;
@@ -31,7 +31,6 @@ public class SchedulerTimerService implements TimerService {
         this.gameStateRepository = gameStateRepository;
     }
 
-    @Override
     public void startTimer(String gameId) {
         stopTimer(gameId);
 
@@ -80,7 +79,6 @@ public class SchedulerTimerService implements TimerService {
         log.info("타이머 설정됨: gameId={}, time={}", gameId, executionTime);
     }
 
-    @Override
     public void stopTimer(String gameId) {
         ScheduledFuture<?> future = scheduledTasks.remove(gameId);
         if (future != null) {

@@ -1,6 +1,6 @@
 package com.example.mafiagame.game.domain.entity;
 
-import com.example.mafiagame.game.domain.PlayerRole;
+import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.user.domain.Users;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;

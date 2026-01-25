@@ -1,6 +1,6 @@
 package com.example.mafiagame.game.state;
 
-import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.state.GameState;
 
 /**
  * 게임 페이즈 상태 인터페이스 (State Pattern)
@@ -30,5 +30,5 @@ public interface GamePhaseState {
     /**
      * 현재 페이즈 종류 반환
      */
-    com.example.mafiagame.game.domain.GamePhase getGamePhase();
+    com.example.mafiagame.game.domain.state.GamePhase getGamePhase();
 }

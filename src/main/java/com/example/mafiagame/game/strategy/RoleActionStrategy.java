@@ -1,7 +1,7 @@
 package com.example.mafiagame.game.strategy;
 
-import com.example.mafiagame.game.domain.GamePlayerState;
-import com.example.mafiagame.game.domain.GameState;
+import com.example.mafiagame.game.domain.state.GamePlayerState;
+import com.example.mafiagame.game.domain.state.GameState;
 
 /**
  * 역할별 밤 행동 전략 인터페이스 (Strategy Pattern)
