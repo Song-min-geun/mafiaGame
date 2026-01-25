@@ -274,6 +274,22 @@ public class ChatRoomService {
                 .toList();
     }
 
+    /**
+     * 유저가 현재 참여 중인 ChatRoom 조회
+     */
+    public ChatRoom findRoomByUserId(String userId) {
+        Set<String> keys = chatRoomRedisTemplate.keys(ROOM_KEY_PREFIX + "*");
+        if (keys == null)
+            return null;
+
+        return keys.stream()
+                .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
+                .filter(Objects::nonNull)
+                .filter(room -> room.isParticipant(userId))
+                .findFirst()
+                .orElse(null);
+    }
+
     // ================== 헬퍼 메소드 ================== //
 
     /**

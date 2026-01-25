@@ -31,8 +31,6 @@ public class ChatRoom implements Serializable {
     @Builder.Default
     private int maxPlayers = 12;
 
-    private boolean isPlaying;
-
     public ChatRoom(String roomName, String hostId, String hostName) {
         this.roomId = UUID.randomUUID().toString();
         if (roomName == null || roomName.trim().isEmpty()) {

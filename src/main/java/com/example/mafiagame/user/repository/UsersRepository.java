@@ -22,7 +22,7 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
 
     @Query("SELECT new com.example.mafiagame.user.dto.reponse.Top10UserResponse(" +
             "u.nickname, u.winRate, u.playCount) " +
-            "FROM User u WHERE u.playCount > 50 " +
+            "FROM Users u WHERE u.playCount > 50 " +
             "ORDER BY u.winRate DESC, u.playCount DESC")
     List<Top10UserResponse> findTopRanking(Pageable pageable);
 }

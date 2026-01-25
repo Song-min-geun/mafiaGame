@@ -2,6 +2,8 @@ package com.example.mafiagame.game.domain.state;
 
 import java.io.Serializable;
 
+import com.example.mafiagame.chat.domain.ChatUser;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -18,9 +20,20 @@ public class GamePlayerState implements Serializable {
 
     private String playerId;
     private String playerName;
-    private PlayerRole role;
-    private Team team;
+
+    @Builder.Default
+    private PlayerRole role = null;
+    @Builder.Default
+    private Team team = null;
 
     @Builder.Default
     private boolean isAlive = true;
+
+    public static GamePlayerState from(ChatUser chatUser) {
+        return GamePlayerState.builder()
+                .playerId(chatUser.getUserId())
+                .playerName(chatUser.getUserName())
+                .isAlive(true)
+                .build();
+    }
 }

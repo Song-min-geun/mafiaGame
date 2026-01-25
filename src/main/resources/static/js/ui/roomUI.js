@@ -49,9 +49,7 @@ export function renderRoomList() {
     let displayRooms = [...state.allRooms];
 
     // Filter
-    if (hidePlaying) {
-        displayRooms = displayRooms.filter(room => !room.playing);
-    }
+
 
     // Sort
     displayRooms.sort((a, b) => {
@@ -83,18 +81,11 @@ export function renderRoomList() {
     displayRooms.forEach(room => {
         const roomItem = document.createElement('div');
         roomItem.className = 'room-item';
-        if (room.playing) {
-            roomItem.classList.add('playing');
-        }
-
-        const participantCount = room.participants?.length || 0;
+        const participantCount = room.participantsCount !== undefined ? room.participantsCount : (room.participants?.length || 0);
         const maxPlayers = room.maxPlayers || 8;
         const isCurrentRoom = currentRoom === room.roomId;
         let roomName = room.roomName || `방 ${room.roomId}`;
 
-        if (room.playing) {
-            roomName = `[진행중] ${roomName}`;
-        }
 
         roomItem.innerHTML = `
             <div class="room-info">
