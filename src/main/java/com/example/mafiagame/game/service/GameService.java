@@ -2,15 +2,14 @@ package com.example.mafiagame.game.service;
 
 import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.domain.entity.GamePlayer;
+import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GamePlayerState;
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.GameStatus;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.domain.state.Team;
-import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.domain.ChatUser;
-import com.example.mafiagame.chat.service.ChatRoomService;
 import com.example.mafiagame.game.strategy.RoleActionFactory;
 import com.example.mafiagame.game.strategy.RoleActionStrategy;
 import com.example.mafiagame.game.strategy.NightActionResult;
@@ -27,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
@@ -50,18 +50,27 @@ public class GameService {
     private final UsersRepository userRepository;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
+
     @Lazy
     private final SchedulerTimerService timerService;
     private final RoleActionFactory roleActionFactory;
     private final GamePhaseFactory gamePhaseFactory;
-    private final ChatRoomService chatRoomService;
 
+    private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
+
+    private static final String ROOM_KEY_PREFIX = "chatroom:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
 
     @Transactional
     public GameState createGame(String roomId) {
+        // ChatRoom 정보 Redis에서 조회 (Source of Truth)
+        ChatRoom chatRoom = chatRoomRedisTemplate.opsForValue().get(ROOM_KEY_PREFIX + roomId);
+        if (chatRoom == null) {
+            throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
+        }
+
         // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
         if (hasActiveGame(roomId)) {
             log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
@@ -71,15 +80,11 @@ public class GameService {
             }
         }
 
-        // ChatRoom에서 플레이어 정보 가져오기
-        ChatRoom chatRoom = chatRoomService.getRoom(roomId);
-        if (chatRoom == null) {
-            throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
-        }
-
         List<ChatUser> participants = chatRoom.getParticipants();
+
+        // 참가자 수 검증
         if (participants.size() < 4) {
-            throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다.");
+            throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다."); // TODO: 에러코드로 변경
         }
 
         String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
@@ -115,21 +120,26 @@ public class GameService {
         gameRepository.save(game);
 
         // Redis: 게임 상태 저장
-        GameState gameState = GameState.builder()
-                .gameId(gameId)
-                .roomId(roomId)
-                .roomName(chatRoom.getRoomName())
-                .status(GameStatus.IN_PROGRESS)
-                .gamePhase(GamePhase.NIGHT_ACTION)
-                .currentPhase(0)
-                .players(participants.stream().map(participant -> {
+        // ChatUser -> GamePlayerState 변환 (factory method 활용)
+        List<GamePlayerState> gamePlayers = participants.stream()
+                .map(participant -> {
                     Users user = userMap.get(participant.getUserId());
                     return GamePlayerState.builder()
                             .playerId(user.getUserLoginId())
                             .playerName(user.getNickname())
                             .isAlive(true)
                             .build();
-                }).collect(Collectors.toList()))
+                })
+                .toList();
+
+        GameState gameState = GameState.builder()
+                .gameId(gameId)
+                .roomId(roomId)
+                .roomName(chatRoom.getRoomName()) // Redis에서 조회한 방 이름 사용
+                .status(GameStatus.IN_PROGRESS)
+                .gamePhase(GamePhase.NIGHT_ACTION)
+                .currentPhase(0)
+                .players(gamePlayers)
                 .build();
 
         gameStateRepository.save(gameState);
@@ -145,7 +155,7 @@ public class GameService {
         return gameState;
     }
 
-    public void assignRoles(String gameId) {
+    private void assignRoles(String gameId) {
         // Redis에서 상태 가져오기
         GameState gameState = getGameState(gameId);
         if (gameState == null)
@@ -194,7 +204,7 @@ public class GameService {
         // DB에도 역할 정보 업데이트하고 싶다면 여기서 GameRepository 호출 필요 (선택사항)
     }
 
-    public void startGame(String gameId) {
+    private void startGame(String gameId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null)
             throw new RuntimeException("게임을 찾을 수 없습니다: " + gameId);
@@ -624,6 +634,9 @@ public class GameService {
         return gameRepository.findById(gameId).orElse(null);
     }
 
+    /**
+     * 방 ID로 게임 조회
+     */
     public Game getGameByRoomId(String roomId) {
         // 가장 최근 진행 중인 게임 반환
         return gameRepository.findFirstByRoomIdAndStatusOrderByStartTimeDesc(roomId, GameStatus.IN_PROGRESS)
@@ -651,6 +664,16 @@ public class GameService {
         return gameStateRepository.findByRoomId(roomId)
                 .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
                 .orElse(null);
+    }
+
+    /*
+     * 특정 플레이어가 투표 시간 연장 사용 가능 여부 조회
+     */
+    public boolean canExtendVotingTime(String playerId) {
+        GameState gameState = getGameByPlayerId(playerId);
+        if (gameState == null)
+            return false;
+        return gameState.canExtendVotingTime(playerId);
     }
 
     // 사용되지 않을 수 있으나 호환성 유지

@@ -36,13 +36,15 @@ public class Game {
     @Column(name = "room_id", nullable = false)
     private String roomId;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
-    private GameStatus status;
+    private GameStatus status = GameStatus.IN_PROGRESS;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "winner")
-    private Team winnerTeam;
+    private Team winnerTeam = null;
 
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
@@ -62,7 +64,6 @@ public class Game {
         return Game.builder()
                 .gameId("game_" + System.currentTimeMillis() + "_" + new java.util.Random().nextInt(1000))
                 .roomId(roomId)
-                .status(GameStatus.IN_PROGRESS)
                 .startTime(LocalDateTime.now())
                 .build();
     }

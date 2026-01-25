@@ -6,7 +6,6 @@ import {
     getCurrentUser,
     getCurrentRoom,
     getCurrentRoomName,
-    getCurrentGame,
     setCurrentGame,
     setGameStarted,
     getState,
@@ -45,7 +44,7 @@ export function updateUserInfo() {
 
     if (headerCurrentRoom) {
         const roomName = state.currentRoomName || state.currentRoomInfo?.roomName;
-        if (currentRoom && roomName) {
+        if (roomName) {
             headerCurrentRoom.textContent = roomName;
         } else if (currentRoom) {
             headerCurrentRoom.textContent = currentRoom;
