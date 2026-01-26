@@ -5,10 +5,10 @@ export const API_ENDPOINTS = {
     REGISTER: '/api/users/register',
     USER_ME: '/api/users/me',
     ROOMS: '/api/chat/rooms',
-    GAME_CREATE: '/api/game/create',
-    GAME_UPDATE_TIME: '/api/game/update-time',
-    GAME_STATE: '/api/game/state',
-    GAME_SUGGESTIONS: '/api/game/suggestions'
+    GAME_CREATE: '/api/games/create',
+    GAME_UPDATE_TIME: '/api/games/update-time',
+    GAME_STATE: '/api/games/state',
+    GAME_SUGGESTIONS: '/api/games/suggestions'
 };
 
 export const WS_TOPICS = {
