@@ -63,24 +63,37 @@ public class GameController {
     })
     public ResponseEntity<CreateGameResponse> createGame(Principal principal) {
         if (principal == null) {
+            log.error("게임 생성 실패: 인증 정보가 없습니다.");
             return ResponseEntity.badRequest().body(CreateGameResponse.fail("인증 정보가 없습니다."));
         }
 
         String userId = principal.getName();
+        log.debug("게임 생성 요청: userId={}", userId);
 
         // 유저가 현재 참여 중인 ChatRoom 조회
         ChatRoom chatRoom = chatRoomService.findRoomByUserId(userId);
         if (chatRoom == null) {
+            log.error("게임 생성 실패: userId={} - 참여 중인 채팅방이 없습니다.", userId);
             return ResponseEntity.badRequest().body(CreateGameResponse.fail("참여 중인 채팅방이 없습니다."));
         }
 
+        log.debug("채팅방 발견: roomId={}, hostId={}", chatRoom.getRoomId(), chatRoom.getHostId());
+
         // 방장만 게임 시작 가능
         if (!chatRoom.getHostId().equals(userId)) {
+            log.error("게임 생성 실패: userId={} - 방장이 아닙니다. hostId={}", userId, chatRoom.getHostId());
             return ResponseEntity.badRequest().body(CreateGameResponse.fail("방장만 게임을 시작할 수 있습니다."));
         }
 
-        GameState gameState = gameService.createGame(chatRoom.getRoomId());
-        return ResponseEntity.ok(CreateGameResponse.success(gameState.getGameId(), gameState.getRoomId()));
+        try {
+            GameState gameState = gameService.createGame(chatRoom.getRoomId());
+            log.info("게임 생성 성공: gameId={}, roomId={}", gameState.getGameId(), gameState.getRoomId());
+            return ResponseEntity.ok(CreateGameResponse.success(gameState.getGameId(), gameState.getRoomId()));
+        } catch (Exception e) {
+            log.error("게임 생성 중 예외 발생: roomId={}", chatRoom.getRoomId(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(CreateGameResponse.fail("게임 생성 중 오류: " + e.getMessage()));
+        }
     }
 
     @MessageMapping("/game.vote")

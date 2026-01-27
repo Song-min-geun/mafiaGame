@@ -26,6 +26,7 @@ public class DayVotingState implements GamePhaseState {
     @Override
     public GamePhaseState nextState(GameState gameState) {
         // 투표 결과에 따라 최후 변론 또는 밤으로 이동
+        // 투표 처리는 process()에서 완료되었으며, 최다 득표자가 있으면 votedPlayerId가 설정됨
         if (gameState.getVotedPlayerId() != null) {
             return new DayFinalDefenseState();
         }

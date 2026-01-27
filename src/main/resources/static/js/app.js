@@ -404,6 +404,21 @@ function handleRoomMessage(chatMessage) {
             chatUI.addSystemMessage(text);
             break;
 
+        case 'PRIVATE_MESSAGE':
+            if (chatMessage.messageType === 'POLICE_INVESTIGATION') {
+                // 경찰 조사 결과 강조 표시
+                chatUI.addSystemMessage(`🕵️‍♀️ ${chatMessage.content}`);
+                // 밤 액션 UI에도 결과 표시 시도
+                const nightActionDesc = document.getElementById('nightActionDescription');
+                if (nightActionDesc) {
+                    nightActionDesc.textContent = chatMessage.content;
+                    nightActionDesc.style.color = '#f1c40f'; // Gold color
+                }
+            } else {
+                chatUI.addSystemMessage(chatMessage.content);
+            }
+            break;
+
         case 'TIME_EXTEND':
         case 'TIME_REDUCE':
             if (chatMessage.gameId === state.currentGameId) {
@@ -413,7 +428,6 @@ function handleRoomMessage(chatMessage) {
                     timerUI.updateTimerDisplay(game);
                 }
                 const action = chatMessage.type === 'TIME_EXTEND' ? '연장' : '단축';
-                chatUI.addSystemMessage(`⏰ ${chatMessage.playerName}님이 시간을 ${chatMessage.seconds}초 ${action}했습니다.`);
             }
             break;
 
