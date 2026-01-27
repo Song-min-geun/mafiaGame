@@ -95,7 +95,7 @@ public class WebSocketMessageBroadcaster {
      * 페이즈 변경 메시지
      */
     public void sendPhaseChange(String roomId, Object gameState) {
-        broadcastToRoom(roomId, Map.of("type", "PHASE_CHANGE", "gameState", gameState));
+        broadcastToRoom(roomId, Map.of("type", "PHASE_SWITCHED", "game", gameState));
     }
 
     /**

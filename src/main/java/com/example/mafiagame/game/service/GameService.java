@@ -17,6 +17,10 @@ import com.example.mafiagame.game.state.GamePhaseFactory;
 import com.example.mafiagame.game.state.GamePhaseState;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.repository.UsersRepository;
+
+import java.util.function.Consumer;
+import java.util.concurrent.TimeUnit;
+
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.error.ErrorCode;
@@ -24,6 +28,8 @@ import com.example.mafiagame.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -50,6 +56,7 @@ public class GameService {
     private final UsersRepository userRepository;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedissonClient redissonClient;
 
     @Lazy
     private final SchedulerTimerService timerService;
@@ -62,97 +69,124 @@ public class GameService {
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
+    private static final String GAME_CREATE_LOCK_PREFIX = "lock:game:create:";
 
     @Transactional
     public GameState createGame(String roomId) {
-        // ChatRoom 정보 Redis에서 조회 (Source of Truth)
-        ChatRoom chatRoom = chatRoomRedisTemplate.opsForValue().get(ROOM_KEY_PREFIX + roomId);
-        if (chatRoom == null) {
-            throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
-        }
+        // 분산 락을 사용하여 동시 게임 생성 방지
+        String lockKey = GAME_CREATE_LOCK_PREFIX + roomId;
+        RLock lock = redissonClient.getLock(lockKey);
 
-        // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
-        if (hasActiveGame(roomId)) {
-            log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
-            GameState existingGame = getActiveGameByRoomId(roomId);
-            if (existingGame != null) {
-                return existingGame;
+        try {
+            // 5초 동안 락 획득 시도, 락 획득 시 10초간 유지
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[게임 생성] 락 획득 실패: roomId={}", roomId);
+                // 이미 게임이 생성 중이므로 기존 게임 반환 시도
+                GameState existingGame = getActiveGameByRoomId(roomId);
+                if (existingGame != null) {
+                    return existingGame;
+                }
+                throw new RuntimeException("게임 생성 중입니다. 잠시 후 다시 시도해주세요.");
             }
-        }
 
-        List<ChatUser> participants = chatRoom.getParticipants();
-
-        // 참가자 수 검증
-        if (participants.size() < 4) {
-            throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다."); // TODO: 에러코드로 변경
-        }
-
-        String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
-
-        List<String> playerIds = participants.stream()
-                .map(ChatUser::getUserId)
-                .toList();
-        Map<String, Users> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
-                .stream()
-                .collect(Collectors.toMap(Users::getUserLoginId, u -> u));
-
-        // MySQL: 이력 저장용 Entity 생성
-        Game game = Game.builder()
-                .gameId(gameId)
-                .roomId(roomId)
-                .status(GameStatus.IN_PROGRESS)
-                .startTime(LocalDateTime.now())
-                .build();
-
-        List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
-            Users user = userMap.get(participant.getUserId());
-            if (user == null) {
-                throw new RuntimeException("User not found: " + participant.getUserId());
+            // ChatRoom 정보 Redis에서 조회 (Source of Truth)
+            ChatRoom chatRoom = chatRoomRedisTemplate.opsForValue().get(ROOM_KEY_PREFIX + roomId);
+            if (chatRoom == null) {
+                throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
             }
-            return GamePlayer.builder()
-                    .game(game)
-                    .user(user)
-                    .isAlive(true)
+
+            // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
+            if (hasActiveGame(roomId)) {
+                log.warn("[게임 생성] 이미 진행 중인 게임이 있습니다: roomId={}", roomId);
+                GameState existingGame = getActiveGameByRoomId(roomId);
+                if (existingGame != null) {
+                    return existingGame;
+                }
+            }
+
+            List<ChatUser> participants = chatRoom.getParticipants();
+
+            // 참가자 수 검증
+            if (participants.size() < 4) {
+                throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다."); // TODO: 에러코드로 변경
+            }
+
+            String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
+
+            List<String> playerIds = participants.stream()
+                    .map(ChatUser::getUserId)
+                    .toList();
+            Map<String, Users> userMap = userRepository.findAllByUserLoginIdIn(playerIds)
+                    .stream()
+                    .collect(Collectors.toMap(Users::getUserLoginId, u -> u));
+
+            // MySQL: 이력 저장용 Entity 생성
+            Game game = Game.builder()
+                    .gameId(gameId)
+                    .roomId(roomId)
+                    .status(GameStatus.IN_PROGRESS)
+                    .startTime(LocalDateTime.now())
                     .build();
-        }).collect(Collectors.toList());
 
-        game.setPlayers(dbPlayers);
-        gameRepository.save(game);
+            List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
+                Users user = userMap.get(participant.getUserId());
+                if (user == null) {
+                    throw new RuntimeException("User not found: " + participant.getUserId());
+                }
+                return GamePlayer.builder()
+                        .game(game)
+                        .user(user)
+                        .isAlive(true)
+                        .build();
+            }).collect(Collectors.toList());
 
-        // Redis: 게임 상태 저장
-        // ChatUser -> GamePlayerState 변환 (factory method 활용)
-        List<GamePlayerState> gamePlayers = participants.stream()
-                .map(participant -> {
-                    Users user = userMap.get(participant.getUserId());
-                    return GamePlayerState.builder()
-                            .playerId(user.getUserLoginId())
-                            .playerName(user.getNickname())
-                            .isAlive(true)
-                            .build();
-                })
-                .toList();
+            game.setPlayers(dbPlayers);
+            gameRepository.save(game);
 
-        GameState gameState = GameState.builder()
-                .gameId(gameId)
-                .roomId(roomId)
-                .roomName(chatRoom.getRoomName()) // Redis에서 조회한 방 이름 사용
-                .status(GameStatus.IN_PROGRESS)
-                .gamePhase(GamePhase.NIGHT_ACTION)
-                .currentPhase(0)
-                .players(gamePlayers)
-                .build();
+            // Redis: 게임 상태 저장
+            // ChatUser -> GamePlayerState 변환 (factory method 활용)
+            List<GamePlayerState> gamePlayers = participants.stream()
+                    .map(participant -> {
+                        Users user = userMap.get(participant.getUserId());
+                        return GamePlayerState.builder()
+                                .playerId(user.getUserLoginId())
+                                .playerName(user.getNickname())
+                                .isAlive(true)
+                                .build();
+                    })
+                    .toList();
 
-        gameStateRepository.save(gameState);
+            GameState gameState = GameState.builder()
+                    .gameId(gameId)
+                    .roomId(roomId)
+                    .roomName(chatRoom.getRoomName()) // Redis에서 조회한 방 이름 사용
+                    .status(GameStatus.IN_PROGRESS)
+                    .gamePhase(GamePhase.NIGHT_ACTION)
+                    .currentPhase(0)
+                    .players(gamePlayers)
+                    .build();
 
-        assignRoles(gameId);
-        startGame(gameId);
+            gameStateRepository.save(gameState);
 
-        GameState updatedGameState = gameStateRepository.findById(gameId)
-                .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
+            assignRoles(gameId);
+            startGame(gameId);
 
-        messageBroadcaster.sendGameStart(roomId, updatedGameState);
-        log.info("게임 생성됨: {}", gameId);
-        return gameState;
+            GameState updatedGameState = gameStateRepository.findById(gameId)
+                    .orElseThrow(ErrorCode.GAMESTATE_NOT_FOUND::commonException);
+
+            messageBroadcaster.sendGameStart(roomId, updatedGameState);
+            log.info("게임 생성됨: {}", gameId);
+            return updatedGameState;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("게임 생성 중 인터럽트 발생", e);
+        } finally {
+            // 락 해제
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     private void assignRoles(String gameId) {
@@ -315,15 +349,19 @@ public class GameService {
 
     private void processCurrentPhase(GameState gameState) {
         switch (gameState.getGamePhase()) {
+            case DAY_DISCUSSION -> flushExtendVotingList(gameState);
             case DAY_VOTING -> processDayVoting(gameState);
             case DAY_FINAL_VOTING -> processFinalVoting(gameState);
             case NIGHT_ACTION -> processNight(gameState);
             default -> {
-            } // DAY_DISCUSSION, DAY_FINAL_DEFENSE는 특별한 처리 없음
+            }
         }
     }
 
-    // ... (vote, finalVote etc methods omitted) ...
+    private void flushExtendVotingList(GameState gameState) {
+        gameState.getVotingTimeExtensionsUsed().clear();
+        gameStateRepository.save(gameState);
+    }
 
     private boolean checkGameEnd(GameState gameState) {
         String winner = gameState.checkWinner();
@@ -349,7 +387,7 @@ public class GameService {
         String votesKey = VOTE_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(votesKey, voterId, targetId);
-            stringRedisTemplate.expire(votesKey, java.time.Duration.ofMinutes(30));
+            stringRedisTemplate.expire(votesKey, 30, TimeUnit.MINUTES);
             log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
         } catch (Exception e) {
             log.error("[투표] 오류: gameId={}", gameId, e);
@@ -364,18 +402,25 @@ public class GameService {
         if (gameState == null || gameState.getGamePhase() != GamePhase.DAY_FINAL_VOTING)
             return;
 
-        // 변론자 본인은 투표 불가
-        if (findActivePlayerById(gameState, voterId) == null || voterId.equals(gameState.getVotedPlayerId()))
+        if (!checkFinalVoteValidity(gameState, voterId))
             return;
 
         String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(finalVotesKey, voterId, voteChoice);
-            stringRedisTemplate.expire(finalVotesKey, java.time.Duration.ofMinutes(30));
+            stringRedisTemplate.expire(finalVotesKey, 30, TimeUnit.MINUTES);
             log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
         } catch (Exception e) {
             log.error("[최종투표] 오류: gameId={}", gameId, e);
         }
+    }
+
+    private boolean checkFinalVoteValidity(GameState gameState, String voterId) {
+        // 변론자(최다 득표자) 본인은 투표 불가
+        if (findActivePlayerById(gameState, voterId) == null || voterId.equals(gameState.getVotedPlayerId())) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -393,7 +438,7 @@ public class GameService {
         String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(nightActionsKey, actorId, targetId);
-            stringRedisTemplate.expire(nightActionsKey, java.time.Duration.ofMinutes(30));
+            stringRedisTemplate.expire(nightActionsKey, 30, TimeUnit.MINUTES);
             log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
 
             // 경찰은 즉시 결과 확인
@@ -734,7 +779,7 @@ public class GameService {
     }
 
     private void findPlayerById(GameState gameState, String playerId,
-            java.util.function.Consumer<GamePlayerState> action) {
+            Consumer<GamePlayerState> action) {
         GamePlayerState p = gameState.findPlayer(playerId);
         if (p != null)
             action.accept(p);
