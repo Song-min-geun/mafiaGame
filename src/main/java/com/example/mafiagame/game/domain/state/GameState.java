@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Collections;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -36,7 +38,9 @@ public class GameState implements Serializable {
     private int currentPhase = 1;
 
     private Long phaseEndTime;
+
     private String winner;
+
     private String votedPlayerId;
 
     @Builder.Default
@@ -123,6 +127,7 @@ public class GameState implements Serializable {
         return null;
     }
 
+    @JsonIgnore
     public List<String> getTopVotedPlayerIds() {
         if (votes == null || votes.isEmpty()) {
             return new ArrayList<>();
