@@ -140,9 +140,6 @@ export async function updateTime(seconds) {
             throw new Error(result.message || '시간 조절 실패');
         }
 
-        const action = seconds > 0 ? '연장' : '단축';
-        addSystemMessage(`⏰ 시간을 ${Math.abs(seconds)}초 ${action}했습니다.`);
-
     } catch (error) {
         // Re-enable buttons on error
         setTimeExtensionUsed(false);

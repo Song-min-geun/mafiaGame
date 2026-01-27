@@ -198,7 +198,14 @@ export function sendVote(gameId, targetId) {
  */
 export function sendFinalVote(gameId, vote) {
     // Backend expects voteChoice: "AGREE" or "DISAGREE"
-    const voteChoice = vote ? "AGREE" : "DISAGREE";
+    // If vote is boolean true -> AGREE, false -> DISAGREE
+    // If vote is string -> use as is
+    let voteChoice;
+    if (typeof vote === 'string') {
+        voteChoice = vote;
+    } else {
+        voteChoice = vote ? "AGREE" : "DISAGREE";
+    }
     send(WS_DESTINATIONS.GAME_FINAL_VOTE, { gameId, voteChoice });
 }
 
