@@ -46,10 +46,8 @@ export function updateUserInfo() {
         const roomName = state.currentRoomName || state.currentRoomInfo?.roomName;
         if (roomName) {
             headerCurrentRoom.textContent = roomName;
-        } else if (currentRoom) {
-            headerCurrentRoom.textContent = currentRoom;
         } else {
-            headerCurrentRoom.textContent = '없음';
+            headerCurrentRoom.textContent = currentRoom ? '방 접속 중...' : '없음';
         }
     }
 
@@ -60,6 +58,28 @@ export function updateUserInfo() {
         headerUserRole.className = `user-role role-${user.role.toLowerCase()}`;
     } else if (headerUserRole) {
         headerUserRole.style.display = 'none';
+    }
+}
+
+/**
+ * Update role display in header based on game player's role
+ */
+function updateRoleDisplay(currentPlayer) {
+    const headerUserRole = document.getElementById('headerUserRole');
+
+    if (!currentPlayer || !currentPlayer.role) {
+        if (headerUserRole) headerUserRole.style.display = 'none';
+        return;
+    }
+
+    const role = currentPlayer.role;
+    const roleName = getRoleDisplayName(role);
+
+    // Update header role badge
+    if (headerUserRole) {
+        headerUserRole.textContent = roleName;
+        headerUserRole.style.display = 'inline';
+        headerUserRole.className = `user-role role-${role.toLowerCase()}`;
     }
 }
 
@@ -119,9 +139,18 @@ export function updateGameButtons() {
 /**
  * Start game
  */
+let isCreatingGame = false; // 중복 요청 방지 플래그
+
 export async function startGame() {
+    // 중복 요청 방지
+    if (isCreatingGame) {
+        console.log('게임 생성 중... 중복 요청 무시');
+        return;
+    }
+
     const currentRoom = getCurrentRoom();
     const state = getState();
+    const startGameBtn = document.getElementById('startGameBtn');
 
     if (!currentRoom || !state.currentRoomInfo) {
         alert('방 정보를 찾을 수 없습니다.');
@@ -135,6 +164,13 @@ export async function startGame() {
     }
 
     try {
+        // 중복 요청 방지 시작
+        isCreatingGame = true;
+        if (startGameBtn) {
+            startGameBtn.disabled = true;
+            startGameBtn.textContent = '게임 시작 중...';
+        }
+
         // 이제 roomId만 전달 (백엔드에서 플레이어 정보 직접 조회)
         const result = await api.createGame(currentRoom);
 
@@ -145,6 +181,16 @@ export async function startGame() {
         console.log('게임 생성 성공:', result.gameId);
     } catch (error) {
         alert(error.message || '게임 시작 중 오류가 발생했습니다.');
+        // 에러 시 버튼 복구
+        if (startGameBtn) {
+            startGameBtn.disabled = false;
+            startGameBtn.textContent = '게임 시작';
+        }
+    } finally {
+        // 일정 시간 후 플래그 해제 (게임 시작 메시지 수신 후 버튼은 숨김 처리됨)
+        setTimeout(() => {
+            isCreatingGame = false;
+        }, 3000);
     }
 }
 
@@ -160,6 +206,9 @@ export function updateGameUI(game) {
     // Find current player
     const currentPlayer = game.players?.find(p => p.playerId === user?.userLoginId);
     const isAlive = currentPlayer?.alive !== false;
+
+    // Update role in header if player has a role
+    updateRoleDisplay(currentPlayer);
 
     // Update based on phase
     hideAllGameUI();
@@ -227,7 +276,6 @@ export function showVotingUI(game) {
             <span class="player-name">${player.playerName}</span>
         `;
         option.onclick = () => selectVoteTarget(player.playerId, option);
-        option.onclick = () => selectVoteTarget(player.playerId, option);
         votingOptions.appendChild(option);
     });
 
@@ -279,40 +327,7 @@ export function submitVote() {
 /**
  * Show final vote UI (agree/disagree)
  */
-export function showFinalVoteUI(game) {
-    const votingArea = document.getElementById('votingArea');
-    const votingOptions = document.getElementById('votingOptions');
-    const votingDescription = document.getElementById('votingDescription');
-    const user = getCurrentUser();
 
-    if (!votingArea || !votingOptions) return;
-
-    // Check if current user is the voted player
-    if (game.votedPlayerId === user?.userLoginId) {
-        showVotedPlayerInfo();
-        return;
-    }
-
-    showElement('votingArea');
-    votingArea.classList.remove('minimized'); // Always start maximized
-    if (votingDescription) {
-        votingDescription.textContent = `${game.votedPlayerName || '최다 득표자'}를 처형할까요?`;
-    }
-
-    option.className = 'vote-option';
-    option.innerHTML = `
-        <span class="player-name">찬성</span>
-    `;
-    votingOptions.appendChild(option);
-
-    option.className = 'vote-option';
-    option.innerHTML = `
-        <span class="player-name">반대</span>
-    `;
-    votingOptions.appendChild(option);
-
-    addToggleBtn(votingArea);
-}
 
 /**
  * Submit final vote
@@ -379,6 +394,57 @@ export function showNightActionUI(game, currentPlayer) {
 }
 
 /**
+ * Show final vote UI (Agree/Disagree)
+ */
+export function showFinalVoteUI(game) {
+    const votingArea = document.getElementById('votingArea');
+    const votingOptions = document.getElementById('votingOptions');
+    const votingDescription = document.getElementById('votingDescription');
+    const user = getCurrentUser();
+
+    if (!votingArea || !votingOptions) return;
+
+    // Show area
+    showElement('votingArea');
+    votingArea.classList.remove('minimized');
+
+    // Update description
+    if (votingDescription) {
+        votingDescription.textContent = `${game.votedPlayerName || '대상'}님을 처형하시겠습니까?`;
+    }
+
+    votingOptions.innerHTML = '';
+
+    // Create Agree/Disagree options
+    const options = [
+        { id: 'AGREE', text: '찬성', class: 'vote-agree' },
+        { id: 'DISAGREE', text: '반대', class: 'vote-disagree' }
+    ];
+
+    options.forEach(opt => {
+        const option = document.createElement('div');
+        option.className = `vote-option ${opt.class}`;
+        option.innerHTML = `<span class="vote-text">${opt.text}</span>`;
+        option.onclick = () => selectFinalVoteTarget(opt.id, option);
+        votingOptions.appendChild(option);
+    });
+}
+
+function selectFinalVoteTarget(choice, element) {
+    document.querySelectorAll('.vote-option').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
+
+    // Auto submit for final vote
+    ws.sendFinalVote(getState().currentGameId, choice);
+
+    // Minimize after selection
+    const votingArea = document.getElementById('votingArea');
+    if (votingArea) votingArea.classList.add('minimized');
+}
+
+
+
+/**
  * Select night action target
  */
 function selectNightTarget(playerId, element) {
@@ -386,12 +452,15 @@ function selectNightTarget(playerId, element) {
     element.classList.add('selected');
     setSelectedNightActionTarget(playerId);
 
-    // Auto-submit night action
+    // Auto-submit night action but allow modification (don't minimize strictly or allow reopen)
     submitNightAction();
 
-    // Auto-minimize
-    const nightActionArea = document.getElementById('nightActionArea');
-    if (nightActionArea) nightActionArea.classList.add('minimized');
+    // Feedback to user
+    const nightActionDescription = document.getElementById('nightActionDescription');
+    if (nightActionDescription) {
+        nightActionDescription.textContent = "선택 완료. 변경하려면 다른 대상을 클릭하세요.";
+        nightActionDescription.style.color = "#4cd137";
+    }
 }
 
 /**
@@ -403,8 +472,10 @@ export function submitNightAction() {
 
     ws.sendNightAction(state.currentGameId, state.selectedNightActionTarget);
     addSystemMessage('밤 액션이 완료되었습니다.');
-    setSelectedNightActionTarget(null);
-    hideElement('nightActionArea');
+
+    // Don't hide or clear selection so user can modify it
+    // setSelectedNightActionTarget(null);
+    // hideElement('nightActionArea');
 }
 
 /**
@@ -456,6 +527,24 @@ export function handleGameStart(game) {
     setGameStarted(true);
 
     addSystemMessage('게임이 시작되었습니다.');
+
+    // 현재 플레이어의 역할 정보 표시
+    const user = getCurrentUser();
+    if (user && game.players) {
+        const currentPlayer = game.players.find(p => p.playerId === user.userLoginId);
+        if (currentPlayer && currentPlayer.role) {
+            const roleName = getRoleDisplayName(currentPlayer.role);
+            const roleDescriptions = {
+                'MAFIA': '밤에 한 명을 지목하여 제거할 수 있습니다.',
+                'POLICE': '밤에 한 명을 지목하여 마피아인지 확인할 수 있습니다.',
+                'DOCTOR': '밤에 한 명을 지목하여 마피아의 공격으로부터 보호할 수 있습니다.',
+                'CITIZEN': '특별한 능력이 없습니다. 추리를 통해 마피아를 찾아내세요.'
+            };
+            const roleDesc = roleDescriptions[currentPlayer.role] || '';
+            addSystemMessage(`당신의 역할: ${roleName} - ${roleDesc}`);
+        }
+    }
+
     updateGameUI(game);
     updateGameButtons();
     updateTimerDisplay(game);  // Start the timer
