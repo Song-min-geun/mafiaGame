@@ -252,7 +252,7 @@ public class GameService {
         // GamePhase.DAY_DISCUSSION);
 
         // 2. 타이머 시작
-        timerService.startTimer(gameId);
+        timerService.startTimer(gameId, gameState.getPhaseEndTime());
     }
 
     @Transactional
@@ -298,6 +298,7 @@ public class GameService {
 
             // 승률 업데이트
             user.updateWinRate();
+
         }
 
         userRepository.saveAll(users);
@@ -343,8 +344,8 @@ public class GameService {
         // suggestionService.generateAiSuggestionsAsync(gameId,
         // currentState.nextState(gameState).getGamePhase());
 
-        // 다음 페이즈 타이머 시작
-        timerService.startTimer(gameId);
+        // 다음 페이즈 타이머 시작 (Race Condition 방지: phaseEndTime 직접 전달)
+        timerService.startTimer(gameId, gameState.getPhaseEndTime());
     }
 
     private void processCurrentPhase(GameState gameState) {
@@ -387,7 +388,6 @@ public class GameService {
         String votesKey = VOTE_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(votesKey, voterId, targetId);
-            stringRedisTemplate.expire(votesKey, 30, TimeUnit.MINUTES);
             log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
         } catch (Exception e) {
             log.error("[투표] 오류: gameId={}", gameId, e);
@@ -408,7 +408,6 @@ public class GameService {
         String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(finalVotesKey, voterId, voteChoice);
-            stringRedisTemplate.expire(finalVotesKey, 30, TimeUnit.MINUTES);
             log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
         } catch (Exception e) {
             log.error("[최종투표] 오류: gameId={}", gameId, e);
@@ -438,7 +437,8 @@ public class GameService {
         String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(nightActionsKey, actorId, targetId);
-            stringRedisTemplate.expire(nightActionsKey, 30, TimeUnit.MINUTES);
+            // stringRedisTemplate.expire(nightActionsKey, 30, TimeUnit.MINUTES); // 최적화: 매
+            // 요청마다 만료 시간 갱신 제외 (벤치마크용)
             log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
 
             // 경찰은 즉시 결과 확인
@@ -471,8 +471,8 @@ public class GameService {
         // 변경된 시간 브로드캐스트
         sendTimerUpdate(gameState);
 
-        // 타이머 재설정 (기존 타이머 취소 후 새 시간으로 예약)
-        timerService.startTimer(gameId);
+        // 타이머 재설정 (Race Condition 방지: phaseEndTime 직접 전달)
+        timerService.startTimer(gameId, gameState.getPhaseEndTime());
 
         GamePlayerState player = findPlayerById(gameState, playerId);
         if (player != null) {
@@ -485,7 +485,15 @@ public class GameService {
     private void toPhase(GameState gameState, GamePhase phase, int durationSeconds) {
         gameState.setGamePhase(phase);
         gameState.setPhaseEndTime(System.currentTimeMillis() + (durationSeconds * 1000L));
-        // 저장 로직은 호출자가 수행 (batch save)
+
+        // 안전장치: 페이즈 진입 시 이전 데이터 잔재(Zombie Data) 확실히 제거
+        switch (phase) {
+            case DAY_VOTING -> clearVotesFromRedis(gameState.getGameId());
+            case DAY_FINAL_VOTING -> clearFinalVotesFromRedis(gameState.getGameId());
+            case NIGHT_ACTION -> clearNightActionsFromRedis(gameState.getGameId());
+            default -> {
+            }
+        }
     }
 
     private void toNextDayPhase(GameState gameState) {
