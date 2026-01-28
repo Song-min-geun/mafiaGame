@@ -52,8 +52,6 @@ export function updateTimerDisplay(game) {
                 const diff = endTime - now;
                 const seconds = Math.ceil(diff / 1000);
 
-                console.log('Timer tick: seconds remaining =', seconds);
-
                 if (seconds >= 0) {
                     timerCountdown.textContent = seconds;
 

@@ -277,7 +277,19 @@ function handlePrivateMessage(message) {
             break;
 
         case 'PRIVATE_MESSAGE':
-            chatUI.addSystemMessage(message.content);
+            // 경찰 조사 결과 등 특수 메시지 처리
+            if (message.messageType === 'POLICE_INVESTIGATION') {
+                // 경찰 조사 결과 강조 표시
+                chatUI.addSystemMessage(`🕵️‍♀️ ${message.content}`);
+                // 밤 액션 UI에도 결과 표시
+                const nightActionDesc = document.getElementById('nightActionDescription');
+                if (nightActionDesc) {
+                    nightActionDesc.textContent = message.content;
+                    nightActionDesc.style.color = '#f1c40f'; // Gold color
+                }
+            } else {
+                chatUI.addSystemMessage(message.content);
+            }
             break;
 
         case 'AI_SUGGESTION':
