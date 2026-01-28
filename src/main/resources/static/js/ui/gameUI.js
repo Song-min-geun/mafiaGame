@@ -116,8 +116,8 @@ export function updateGameButtons() {
     }
 
     // Start game button
-    // Start game button
     if (startGameBtn) {
+        startGameBtn.textContent = '게임 시작';
         const roomInfo = state.currentRoomInfo;
         const isHost = roomInfo?.hostId === user?.userLoginId ||
             roomInfo?.participants?.[0]?.userId === user?.userLoginId;
@@ -411,6 +411,12 @@ export function showFinalVoteUI(game) {
     // Update description
     if (votingDescription) {
         votingDescription.textContent = `${game.votedPlayerName || '대상'}님을 처형하시겠습니까?`;
+    }
+
+    // Verify if current user is the voted player (Accused)
+    if (user && user.userLoginId === game.votedPlayerId) {
+        votingOptions.innerHTML = '<div class="vote-status-message">당신은 최후 변론 중입니다.<br>투표 권한이 없습니다.</div>';
+        return;
     }
 
     votingOptions.innerHTML = '';
