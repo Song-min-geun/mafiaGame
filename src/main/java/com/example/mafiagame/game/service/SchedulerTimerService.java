@@ -31,25 +31,25 @@ public class SchedulerTimerService {
         this.gameStateRepository = gameStateRepository;
     }
 
-    public void startTimer(String gameId) {
+    /**
+     * 타이머 시작 (phaseEndTime 직접 전달 - Race Condition 방지)
+     * 
+     * @param gameId             게임 ID
+     * @param phaseEndTimeMillis 페이즈 종료 시간 (epoch millis)
+     */
+    public void startTimer(String gameId, long phaseEndTimeMillis) {
         stopTimer(gameId);
 
-        // 2. 게임 정보 가져오기 (Redis에서 최신 상태 조회)
-        // GameState는 실시간 상태 정보를 담고 있음
-        GameState gameState = gameStateRepository.findById(gameId).orElse(null);
-
-        if (gameState == null || gameState.getPhaseEndTime() == null) {
-            log.warn("타이머 시작 실패: 게임이 없거나 종료 시간이 설정되지 않음. gameId={}", gameId);
+        if (phaseEndTimeMillis <= 0) {
+            log.warn("타이머 시작 실패: 종료 시간이 유효하지 않음. gameId={}, endTime={}", gameId, phaseEndTimeMillis);
             return;
         }
 
-        // 3. 실행 시간 계산
-        Instant executionTime = Instant.ofEpochMilli(gameState.getPhaseEndTime());
+        Instant executionTime = Instant.ofEpochMilli(phaseEndTimeMillis);
 
-        // 4. 스케줄링
         ScheduledFuture<?> future = taskScheduler.schedule(() -> {
             try {
-                log.info("타이머 실행: gameId={}, phase={}", gameId, gameState.getGamePhase());
+                log.info("타이머 실행: gameId={}", gameId);
                 gameService.advancePhase(gameId);
             } catch (Exception e) {
                 log.error("타이머 실행 중 오류: gameId={}", gameId, e);
@@ -60,6 +60,19 @@ public class SchedulerTimerService {
 
         scheduledTasks.put(gameId, future);
         log.info("타이머 예약됨: gameId={}, endTime={}", gameId, executionTime);
+    }
+
+    /**
+     * [Deprecated] 기존 호환용 - Redis에서 phaseEndTime 조회
+     */
+    @Deprecated
+    public void startTimer(String gameId) {
+        GameState gameState = gameStateRepository.findById(gameId).orElse(null);
+        if (gameState == null || gameState.getPhaseEndTime() == null) {
+            log.warn("타이머 시작 실패: 게임이 없거나 종료 시간이 설정되지 않음. gameId={}", gameId);
+            return;
+        }
+        startTimer(gameId, gameState.getPhaseEndTime());
     }
 
     public void startTimer(String gameId, Runnable task, Instant executionTime) {

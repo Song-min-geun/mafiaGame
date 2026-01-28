@@ -2,6 +2,7 @@ package com.example.mafiagame.chat.controller;
 
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.dto.request.CreateRoomRequest;
+import com.example.mafiagame.chat.dto.request.JoinRoomRequest;
 import com.example.mafiagame.chat.dto.response.RoomListResponse;
 import com.example.mafiagame.chat.dto.response.RoomResponse;
 import com.example.mafiagame.chat.service.ChatRoomService;
@@ -43,6 +44,19 @@ public class ChatRoomRestController {
             Authentication authentication) {
         ChatRoom room = chatRoomService.createRoom(request, authentication.getName());
         return RoomResponse.from(room);
+    }
+
+    /*
+     * for ngrinder test (join room api)
+     */
+    @PostMapping("/{roomId}/join")
+    @Operation(summary = "채팅방 입장", description = "기존 채팅방에 입장합니다.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "채팅방 입장 성공"),
+            @ApiResponse(responseCode = "404", description = "채팅방 없음")
+    })
+    public void joinRoom(@PathVariable String roomId, @RequestBody JoinRoomRequest request) {
+        chatRoomService.userJoin(request);
     }
 
     @GetMapping
