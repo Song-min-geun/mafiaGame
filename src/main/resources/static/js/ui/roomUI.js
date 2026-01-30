@@ -161,8 +161,9 @@ export async function joinRoom(roomId) {
         // Fetch room details
         try {
             const roomResponse = await api.fetchRoomDetails(roomId);
-            if (roomResponse?.data) {
-                setCurrentRoomInfo(roomResponse.data);
+            // 백엔드가 RoomResponse를 직접 반환하므로 data 래핑 없음
+            if (roomResponse?.roomId) {
+                setCurrentRoomInfo(roomResponse);
                 updateGameButtons();
                 updateUserInfo();
             }
