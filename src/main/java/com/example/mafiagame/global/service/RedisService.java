@@ -216,34 +216,36 @@ public class RedisService {
      * (사용자 세션 user_session:* 은 유지)
      */
     public void clearAllGameData() {
-        Set<String> keysToDelete = new HashSet<>();
+        int deletedCount = 0;
 
-        // 1. 관리 집합 키 삭제
-        keysToDelete.add(ROOM_LIST_KEY);
-        keysToDelete.add(ACTIVE_GAMES_KEY);
-
-        // 2. 패턴 매칭으로 게임 및 채팅방 데이터 키 검색
         try {
-            Set<String> gameKeys = redisTemplate.keys(GAME_PREFIX + "*");
-            if (gameKeys != null)
-                keysToDelete.addAll(gameKeys);
+            // 1. 관리 집합 키 삭제
+            redisTemplate.delete(ROOM_LIST_KEY);
+            redisTemplate.delete(ACTIVE_GAMES_KEY);
+            deletedCount += 2;
 
-            Set<String> chatRoomKeys = redisTemplate.keys(CHAT_ROOM_PREFIX + "*");
-            if (chatRoomKeys != null)
-                keysToDelete.addAll(chatRoomKeys);
+            // 2. 게임 데이터 삭제 (gameRedisTemplate 사용)
+            Set<String> gameKeys = gameRedisTemplate.keys(GAME_PREFIX + "*");
+            if (gameKeys != null && !gameKeys.isEmpty()) {
+                gameRedisTemplate.delete(gameKeys);
+                deletedCount += gameKeys.size();
+                log.info("게임 데이터 {}개 삭제", gameKeys.size());
+            }
+
+            // 3. 채팅방 데이터 삭제 (chatRoomRedisTemplate 사용)
+            Set<String> chatRoomKeys = chatRoomRedisTemplate.keys(CHAT_ROOM_PREFIX + "*");
+            if (chatRoomKeys != null && !chatRoomKeys.isEmpty()) {
+                chatRoomRedisTemplate.delete(chatRoomKeys);
+                deletedCount += chatRoomKeys.size();
+                log.info("채팅방 데이터 {}개 삭제", chatRoomKeys.size());
+            }
 
             // 주의: USER_SESSION_PREFIX 는 삭제하지 않음 (로그인 유지)
 
-        } catch (Exception e) {
-            log.error("Redis 키 검색 중 오류 발생", e);
-        }
+            log.info("서버 시작 초기화: Redis 게임 및 채팅방 데이터 총 {}개 삭제됨", deletedCount);
 
-        // 3. 일괄 삭제
-        if (!keysToDelete.isEmpty()) {
-            redisTemplate.delete(keysToDelete);
-            log.info("서버 시작 초기화: Redis 게임 및 채팅방 데이터 {}개 삭제됨", keysToDelete.size());
-        } else {
-            log.info("서버 시작 초기화: 삭제할 Redis 데이터가 없습니다.");
+        } catch (Exception e) {
+            log.error("Redis 키 검색/삭제 중 오류 발생", e);
         }
     }
 }
