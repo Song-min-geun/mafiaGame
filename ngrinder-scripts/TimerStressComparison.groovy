@@ -38,7 +38,7 @@ class TimerStressComparison {
     public static GTest gameStatusTest
     
     public static HTTPRequest request
-    public static JsonSlurper jsonSlurper
+    // public static JsonSlurper jsonSlurper
     
     String jwtToken
     String currentUserId
@@ -53,7 +53,7 @@ class TimerStressComparison {
         gameStatusTest = new GTest(2, "게임 상태 조회 (TPS 측정)")
         
         request = new HTTPRequest()
-        jsonSlurper = new JsonSlurper()
+        // jsonSlurper remove
         HTTPPluginControl.getConnectionDefaults().timeout = 30000
         
         grinder.logger.info("타이머 스트레스 테스트 초기화")
@@ -62,7 +62,9 @@ class TimerStressComparison {
     @BeforeThread
     public void beforeThread() {
         threadNum = grinder.threadNumber
-        currentUserId = "dummy${(threadNum % 100) + 1}"
+        // 각 쓰레드마다 서로 다른 유저 셋을 사용 (Disjoint Set)
+        int baseIndex = (threadNum * 4)
+        currentUserId = "dummy${baseIndex + 1}"
         
         createGameTest.record(this, "createGame")
         gameStatusTest.record(this, "pollGameStatus")
@@ -76,6 +78,7 @@ class TimerStressComparison {
         if (!initialized) {
             login()
             createRoom()
+            joinBots()
             createGame()
             initialized = true
         }
@@ -107,7 +110,7 @@ class TimerStressComparison {
         )
         
         if (response.statusCode == 200) {
-            def result = jsonSlurper.parseText(response.getText())
+            def result = new JsonSlurper().parseText(response.getText())
             jwtToken = result.data?.token
             grinder.logger.info("로그인 성공: ${currentUserId}")
         }
@@ -132,7 +135,7 @@ class TimerStressComparison {
         )
         
         if (response.statusCode == 200) {
-            def room = jsonSlurper.parseText(response.getText())
+            def room = new JsonSlurper().parseText(response.getText())
             currentRoomId = room?.roomId
             grinder.logger.info("방 생성: ${currentRoomId}")
         }
@@ -141,34 +144,93 @@ class TimerStressComparison {
     /**
      * 게임 생성 (타이머 활성화)
      */
-    public void createGame() {
+    /**
+     * 봇 3명 추가 (총 4명 충족)
+     */
+    private void joinBots() {
         if (!currentRoomId) return
         
-        // 4명 플레이어 구성
-        def players = []
-        for (int i = 1; i <= 4; i++) {
-            def idx = ((threadNum + i - 1) % 10) + 1
-            players.add([playerId: "dummy${idx}", isHost: (i == 1)])
+        for (int i = 1; i <= 3; i++) {
+            // 1. 기존 더미 유저 사용 (회원가입 건너뜀)
+            int baseIndex = (threadNum * 4)
+            int botIndex = baseIndex + 1 + i
+            
+            def botId = "dummy${botIndex}"
+            
+            // 2. 방 입장
+            def joinPayload = JsonOutput.toJson([
+                roomId: currentRoomId,
+                userId: botId
+            ])
+            
+            HTTPResponse joinResponse = request.POST(
+                "${baseUrl}/api/chat/rooms/${currentRoomId}/join", 
+                joinPayload.getBytes("UTF-8"), 
+                [
+                    new NVPair("Authorization", "Bearer ${jwtToken}"),
+                    new NVPair("Content-Type", "application/json")
+                ] as NVPair[]
+            )
+            
+            if (joinResponse.statusCode != 200) {
+                 grinder.logger.error("봇 입장 실패: ${botId} -> ${joinResponse.statusCode}")
+            }
+            grinder.sleep(50)
+        }
+        grinder.logger.info("봇 3명 입장 시도 완료")
+    }
+
+    private boolean waitForFullRoom() {
+        for (int i = 0; i < 20; i++) {
+            HTTPResponse response = request.GET(
+                "${baseUrl}/api/chat/rooms/${currentRoomId}",
+                null, 
+                [new NVPair("Authorization", "Bearer ${jwtToken}")] as NVPair[]
+            )
+            
+            if (response.statusCode == 200) {
+                def room = new JsonSlurper().parseText(response.getText())
+                def count = 0
+                if (room.participants) {
+                    count = room.participants.size()
+                }
+                
+                if (count >= 4) {
+                    grinder.logger.info("방 인원 충족: ${count}명")
+                    return true
+                }
+            }
+            grinder.sleep(500)
+        }
+        return false
+    }
+
+    /**
+     * 게임 생성 (타이머 활성화)
+     */
+    public void createGame() {
+        if (!currentRoomId) return
+
+        // 4명이 찰 때까지 대기 (최대 10초)
+        if (!waitForFullRoom()) {
+            grinder.logger.error("방 인원 부족으로 게임 생성 중단")
+            return
         }
         
-        def payload = JsonOutput.toJson([
-            roomId: currentRoomId,
-            players: players
-        ])
-        
+        // 게임 생성 API는 body 없이 Authorization header만 필요
         HTTPResponse response = request.POST(
-            "${baseUrl}/api/game/create",
-            payload.getBytes("UTF-8"),
+            "${baseUrl}/api/games/create",
+            "".getBytes("UTF-8"),
             [
                 new NVPair("Authorization", "Bearer ${jwtToken}"),
                 new NVPair("Content-Type", "application/json")
             ] as NVPair[]
         )
         
-        if (response.statusCode == 200) {
+        if (response.statusCode == 200 || response.statusCode == 201) {
             def result = jsonSlurper.parseText(response.getText())
             currentGameId = result?.gameId
-            grinder.logger.info("게임 생성: ${currentGameId} (타이머 시작됨)")
+            grinder.logger.info("게임 생성: ${currentGameId}")
         }
     }
     
@@ -181,7 +243,7 @@ class TimerStressComparison {
      */
     public void pollGameStatus() {
         HTTPResponse response = request.GET(
-            "${baseUrl}/api/game/${currentGameId}/status",
+            "${baseUrl}/api/games/${currentGameId}/status",
             null,
             [
                 new NVPair("Authorization", "Bearer ${jwtToken}"),
