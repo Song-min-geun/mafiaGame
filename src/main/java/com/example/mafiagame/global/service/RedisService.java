@@ -24,7 +24,7 @@ public class RedisService {
     private final RedisTemplate<String, Game> gameRedisTemplate;
 
     // Redis 키 상수
-    private static final String CHAT_ROOM_PREFIX = "chat_room:";
+    private static final String CHAT_ROOM_PREFIX = "chatroom:";
     private static final String GAME_PREFIX = "game:";
     private static final String USER_SESSION_PREFIX = "user_session:";
     private static final String ROOM_LIST_KEY = "room_list";
