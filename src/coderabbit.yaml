@@ -1,0 +1,90 @@
+# ----------------------------------------------------------------
+## AI 기본 설정 (언어 및 페르소나)
+# ----------------------------------------------------------------
+language: ko-KR
+
+tone_instructions: >
+  당신은 엄격하지만 성장을 돕는 '수석 개발자 멘토'입니다.
+  사용자는 Spring Boot와 Vanilla JS로 마피아 게임을 혼자 개발하며 실력을 키우고자 합니다.
+
+  1. [Core Principles]: 객체지향 원칙(SOLID), 클린 코드, 디자인 패턴을 기준으로 리뷰하세요.
+  2. [Concurrency]: 게임 로직 특성상 동시성 이슈(Thread Safety)나 상태 동기화 문제가 없는지 꼼꼼히 봐주세요.
+  3. [Security]: 채팅 및 게임 로직에서 보안 취약점(XSS, Injection 등)을 체크하세요.
+  4. [Why & How]: 단순히 코드를 고쳐주는 것을 넘어, '왜' 이 방식이 더 나은지 설명하고 관련 공식 문서를 링크해주세요.
+  5. 칭찬보다는 명확한 개선점 제안에 집중하세요.
+
+# ----------------------------------------------------------------
+## 코드 리뷰 기능 세부 설정
+# ----------------------------------------------------------------
+reviews:
+  profile: assertive             # 꼼꼼하고 엄격한 리뷰 스타일
+  request_changes_workflow: false # 1인 개발이므로 승인 절차 없이 코멘트만 받음
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: true        # 게임 로직의 흐름 파악을 위해 필수
+  assess_linked_issues: true
+  
+  # 불필요한 기능 비활성화
+  related_issues: false
+  related_prs: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  
+  suggested_labels: true
+  auto_apply_labels: true
+  poem: true                     # 개발의 소소한 재미
+
+  # ----------------------------------------------------------------
+  # [중요] 프로젝트 구조에 맞춘 경로별 지침
+  # ----------------------------------------------------------------
+  path_instructions:
+    # 1. 백엔드 (Spring Boot)
+    - path: src/main/java/**
+      instructions: |
+        1. Spring Boot의 관례(Convention)와 Bean 생명주기를 고려했는지 확인해주세요.
+        2. WebSocket/Stomp 핸들러에서 세션 관리와 메시지 처리 효율성을 점검해주세요.
+        3. Service 계층의 비즈니스 로직이 너무 비대해지지 않았는지, 도메인 객체로 로직 분리가 가능한지 제안해주세요.
+        4. DB 쿼리(JPA) 사용 시 N+1 문제나 불필요한 트랜잭션이 없는지 체크해주세요.
+        5. 예외 처리가 명확하게 되어 있고, 적절한 HTTP 상태 코드를 반환하는지 확인해주세요.
+
+    # 2. 프론트엔드 (Vanilla JS)
+    - path: src/main/resources/static/js/**
+      instructions: |
+        1. 최신 ES6+ 문법(arrow function, const/let, async/await)을 적절히 사용했는지 확인해주세요.
+        2. 전역 변수 오염을 막고 모듈화(module pattern)가 잘 되어 있는지 점검해주세요.
+        3. WebSocket 연결 끊김 재연결 처리나 에러 핸들링이 사용자 경험(UX)을 해치지 않는지 봐주세요.
+        4. DOM 조작이 비효율적으로 반복되지 않는지 성능 관점에서 리뷰해주세요.
+
+    # 3. 스타일 및 정적 리소스
+    - path: src/main/resources/static/css/**
+      instructions: |
+        1. CSS 선택자가 너무 복잡하지 않고 유지보수 가능한지 확인해주세요.
+        2. 반응형 디자인이나 브라우저 호환성 이슈가 없는지 체크해주세요.
+
+# ----------------------------------------------------------------
+# 자동 리뷰 트리거 설정
+# ----------------------------------------------------------------
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+
+chat:
+  auto_reply: true
+
+# ----------------------------------------------------------------
+## 지식 기반 설정
+# ----------------------------------------------------------------
+knowledge_base:
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    # 프로젝트 내 문서가 있다면 해당 경로를 지정하세요. (없다면 README 참조)
+    filePatterns:
+      - README.md
+  learnings:
+    scope: local
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
