@@ -68,8 +68,8 @@ public class Users {
      * UPDATE 시 WHERE version = X 조건 자동 추가
      * 버전 불일치 시 ObjectOptimisticLockingFailureException 발생
      */
-    @Version
-    private Long version;
+    // @Version
+    // private Long version;
 
     public void updateUserLoginPassword(String userLoginPassword) {
         this.userLoginPassword = userLoginPassword;
