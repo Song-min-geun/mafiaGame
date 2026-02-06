@@ -28,48 +28,49 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class InternalUserStatsService {
 
-    private final UsersRepository usersRepository;
+        private final UsersRepository usersRepository;
 
-    /**
-     * 유저 playCount 증가 (트랜잭션 보장)
-     * 
-     * @param userId   유저 ID
-     * @param lockType 사용 중인 락 타입 (Pessimistic일 경우 FOR UPDATE 사용)
-     */
-    @Transactional
-    public void doIncrement(Long userId, LockType lockType) {
-        Users user = switch (lockType) {
-            case PESSIMISTIC -> usersRepository.findByIdWithPessimisticLock(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-            default -> usersRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-        };
+        /**
+         * 유저 playCount 증가 (트랜잭션 보장)
+         * 
+         * @param userId   유저 ID
+         * @param lockType 사용 중인 락 타입 (Pessimistic일 경우 FOR UPDATE 사용)
+         */
+        @Transactional
+        public void doIncrement(Long userId, LockType lockType) {
+                Users user = switch (lockType) {
+                        case PESSIMISTIC -> usersRepository.findByIdWithPessimisticLock(userId)
+                                        .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+                        default -> usersRepository.findById(userId)
+                                        .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+                };
 
-        user.incrementPlayCount();
-        usersRepository.save(user);
+                user.incrementPlayCount();
+                usersRepository.save(user);
 
-        log.debug("[전적 업데이트] userId={}, lockType={}, newPlayCount={}",
-                userId, lockType, user.getPlayCount());
-    }
+                if (user.getPlayCount() % 100000 == 0)
+                        log.warn("[전적 업데이트] userId={}, lockType={}, newPlayCount={}",
+                                        userId, lockType, user.getPlayCount());
+        }
 
-    /**
-     * 유저 winCount + playCount 증가 (트랜잭션 보장)
-     */
-    @Transactional
-    public void doIncrementWithWin(Long userId, LockType lockType) {
-        Users user = switch (lockType) {
-            case PESSIMISTIC -> usersRepository.findByIdWithPessimisticLock(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-            default -> usersRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-        };
+        /**
+         * 유저 winCount + playCount 증가 (트랜잭션 보장)
+         */
+        @Transactional
+        public void doIncrementWithWin(Long userId, LockType lockType) {
+                Users user = switch (lockType) {
+                        case PESSIMISTIC -> usersRepository.findByIdWithPessimisticLock(userId)
+                                        .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+                        default -> usersRepository.findById(userId)
+                                        .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+                };
 
-        user.incrementPlayCount();
-        user.incrementWinCount();
-        user.updateWinRate();
-        usersRepository.save(user);
+                user.incrementPlayCount();
+                user.incrementWinCount();
+                user.updateWinRate();
+                usersRepository.save(user);
 
-        log.debug("[전적 업데이트 with 승리] userId={}, lockType={}, winRate={}",
-                userId, lockType, user.getWinRate());
-    }
+                log.debug("[전적 업데이트 with 승리] userId={}, lockType={}, winRate={}",
+                                userId, lockType, user.getWinRate());
+        }
 }

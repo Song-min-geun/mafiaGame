@@ -24,8 +24,8 @@ public class RedissonConfig {
         Config config = new Config();
         config.useSingleServer()
                 .setAddress("redis://" + redisHost + ":" + redisPort)
-                .setConnectionMinimumIdleSize(1)
-                .setConnectionPoolSize(2);
+                .setConnectionMinimumIdleSize(10)
+                .setConnectionPoolSize(50);
 
         return Redisson.create(config);
     }
