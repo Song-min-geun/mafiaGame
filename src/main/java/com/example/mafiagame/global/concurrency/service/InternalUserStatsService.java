@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 트랜잭션 분리를 위한 내부 서비스
  * 
- * 목적:
+ * 목적:/.
  * - Redisson Lock 내부에서 호출
  * - 트랜잭션 커밋이 Lock 해제 전에 완료됨을 보장
  * 
