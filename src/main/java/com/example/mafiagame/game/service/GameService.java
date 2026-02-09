@@ -255,6 +255,8 @@ public class GameService {
         timerService.startTimer(gameId, gameState.getPhaseEndTime());
     }
 
+    private static final String USER_STATS_LOCK_PREFIX = "lock:user:stats:";
+
     @Transactional
     public void endGame(String gameId, String winner) {
         // 1. Redis 상태 조회
@@ -269,39 +271,14 @@ public class GameService {
             gameRepository.save(game);
         });
 
-        List<String> playerIds = gameState.getPlayers().stream()
-                .map(GamePlayerState::getPlayerId)
-                .filter(id -> id != null)
-                .toList();
-
-        List<Users> users = userRepository.findAllByUserLoginIdIn(playerIds);
-        Map<String, Users> userMap = users.stream()
-                .collect(Collectors.toMap(Users::getUserLoginId, u -> u));
-
-        // 각 플레이어의 전적 업데이트
+        // 각 플레이어의 전적 업데이트 (개별 락으로 보호)
         boolean isCitizenWin = "CITIZEN".equals(winner);
         for (GamePlayerState gp : gameState.getPlayers()) {
             if (gp.getPlayerId() == null)
                 continue;
 
-            Users user = userMap.get(gp.getPlayerId());
-            if (user == null)
-                continue;
-
-            user.incrementPlayCount();
-            boolean isMafia = (gp.getTeam() == Team.MAFIA);
-
-            // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
-            if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
-                user.incrementWinCount();
-            }
-
-            // 승률 업데이트
-            user.updateWinRate();
-
+            updateUserStatsWithLock(gp.getPlayerId(), isCitizenWin, gp.getTeam() == Team.MAFIA);
         }
-
-        userRepository.saveAll(users);
 
         // 3. 타이머 중지
         timerService.stopTimer(gameId);
@@ -311,6 +288,48 @@ public class GameService {
 
         // 5. Redis 데이터 삭제 (게임 끝!)
         gameStateRepository.delete(gameId);
+    }
+
+    /**
+     * 유저별 전적 업데이트 (Redisson 분산 락으로 동시성 보호)
+     */
+    private void updateUserStatsWithLock(String playerId, boolean isCitizenWin, boolean isMafia) {
+        String lockKey = USER_STATS_LOCK_PREFIX + playerId;
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[endGame] 유저 전적 업데이트 락 획득 실패: playerId={}", playerId);
+                return;
+            }
+
+            Users user = userRepository.findByUserLoginId(playerId).orElse(null);
+            if (user == null) {
+                log.warn("[endGame] 유저를 찾을 수 없음: playerId={}", playerId);
+                return;
+            }
+
+            user.incrementPlayCount();
+
+            // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
+            if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
+                user.incrementWinCount();
+            }
+
+            // 승률 업데이트
+            user.updateWinRate();
+            userRepository.save(user);
+
+            log.debug("[endGame] 전적 업데이트 완료: playerId={}, playCount={}", playerId, user.getPlayCount());
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[endGame] 인터럽트 발생: playerId={}", playerId, e);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     public void advancePhase(String gameId) {
