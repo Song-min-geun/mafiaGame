@@ -17,11 +17,14 @@ import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,9 +43,11 @@ public class ChatRoomService {
     private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
+    private final RedissonClient redissonClient;
 
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
     private static final String ROOM_KEY_PREFIX = "chatroom:";
+    private static final String ROOM_LOCK_PREFIX = "lock:room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
 
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
@@ -173,22 +178,41 @@ public class ChatRoomService {
     }
 
     public void userJoin(JoinRoomRequest request) {
-        ChatRoom room = getRoom(request.roomId());
-        if (room == null) {
-            sendErrorMessageToUser(request.userId(), "채팅방이 존재하지 않습니다.");
-            return;
+        String lockKey = ROOM_LOCK_PREFIX + request.roomId();
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[userJoin] 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
+                return;
+            }
+
+            ChatRoom room = getRoom(request.roomId());
+            if (room == null) {
+                sendErrorMessageToUser(request.userId(), "채팅방이 존재하지 않습니다.");
+                return;
+            }
+
+            Users user = userService.getUserByLoginId(request.userId());
+            room.addParticipant(request.toParticipant(user));
+
+            saveRoom(room);
+
+            String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
+            ChatMessage joinMessage = ChatMessage.userJoined(room, content);
+
+            messageBroadcaster.broadcastToRoom(request.roomId(), joinMessage);
+            messageBroadcaster.notifyRoomListUpdated();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[userJoin] 인터럽트 발생: roomId={}", request.roomId(), e);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-
-        Users user = userService.getUserByLoginId(request.userId());
-        room.addParticipant(request.toParticipant(user));
-
-        saveRoom(room);
-
-        String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
-        ChatMessage joinMessage = ChatMessage.userJoined(room, content);
-
-        messageBroadcaster.broadcastToRoom(request.roomId(), joinMessage);
-        messageBroadcaster.notifyRoomListUpdated();
     }
 
     // 방 hostId와 userId와 비교하여 메세지 전달
@@ -199,31 +223,50 @@ public class ChatRoomService {
     }
 
     public void userLeave(LeaveRoomRequest request) {
-        ChatRoom room = getRoom(request.roomId());
-        if (room == null)
-            return;
+        String lockKey = ROOM_LOCK_PREFIX + request.roomId();
+        RLock lock = redissonClient.getLock(lockKey);
 
-        // 퇴장 가능 여부 확인 (GameService에 위임)
-        if (!gameService.canPlayerLeaveRoom(request.roomId(), request.userId())) {
-            log.warn("게임 진행 중 퇴장 시도 차단: userId={}, roomId={}", request.userId(), request.roomId());
-            sendErrorMessageToUser(request.userId(), "게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.");
-            return;
+        try {
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[userLeave] 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
+                return;
+            }
+
+            ChatRoom room = getRoom(request.roomId());
+            if (room == null)
+                return;
+
+            // 퇴장 가능 여부 확인 (GameService에 위임)
+            if (!gameService.canPlayerLeaveRoom(request.roomId(), request.userId())) {
+                log.warn("게임 진행 중 퇴장 시도 차단: userId={}, roomId={}", request.userId(), request.roomId());
+                sendErrorMessageToUser(request.userId(), "게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.");
+                return;
+            }
+
+            String leftUserName = room.removeParticipant(request.userId());
+            if (leftUserName == null)
+                return; // 방에 없는 유저가 나가는 경우
+
+            if (room.getParticipants().isEmpty()) {
+                // 아무도 없으면 방 삭제
+                deleteRoom(request.roomId());
+            } else {
+                // Redis에 변경된 방 정보 저장
+                saveRoom(room);
+                ChatMessage leaveMessage = ChatMessage.userLeft(room, leftUserName);
+                messageBroadcaster.broadcastToRoom(request.roomId(), leaveMessage);
+            }
+            messageBroadcaster.notifyRoomListUpdated();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[userLeave] 인터럽트 발생: roomId={}", request.roomId(), e);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-
-        String leftUserName = room.removeParticipant(request.userId());
-        if (leftUserName == null)
-            return; // 방에 없는 유저가 나가는 경우
-
-        if (room.getParticipants().isEmpty()) {
-            // 아무도 없으면 방 삭제
-            deleteRoom(request.roomId());
-        } else {
-            // Redis에 변경된 방 정보 저장
-            saveRoom(room);
-            ChatMessage leaveMessage = ChatMessage.userLeft(room, leftUserName);
-            messageBroadcaster.broadcastToRoom(request.roomId(), leaveMessage);
-        }
-        messageBroadcaster.notifyRoomListUpdated();
     }
 
     // 방 저장
