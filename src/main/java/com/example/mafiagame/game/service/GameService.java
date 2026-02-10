@@ -289,27 +289,44 @@ public class GameService {
     }
 
     /**
-     * 유저별 전적 업데이트
+     * 유저별 전적 업데이트 (Redisson 분산 락으로 동시성 보호)
      */
     private void updateUserStats(String playerId, boolean isCitizenWin, boolean isMafia) {
-        Users user = userRepository.findByUserLoginId(playerId).orElse(null);
-        if (user == null) {
-            log.warn("[endGame] 유저를 찾을 수 없음: playerId={}", playerId);
-            return;
+        String lockKey = "lock:user:stats:" + playerId;
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[endGame] 유저 전적 업데이트 락 획득 실패: playerId={}", playerId);
+                return;
+            }
+
+            Users user = userRepository.findByUserLoginId(playerId).orElse(null);
+            if (user == null) {
+                log.warn("[endGame] 유저를 찾을 수 없음: playerId={}", playerId);
+                return;
+            }
+
+            user.incrementPlayCount();
+
+            // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
+            if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
+                user.incrementWinCount();
+            }
+
+            // 승률 업데이트
+            user.updateWinRate();
+            userRepository.save(user);
+
+            log.debug("[endGame] 전적 업데이트 완료: playerId={}, playCount={}", playerId, user.getPlayCount());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[endGame] 유저 전적 업데이트 중 인터럽트 발생: playerId={}", playerId, e);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-
-        user.incrementPlayCount();
-
-        // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
-        if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
-            user.incrementWinCount();
-        }
-
-        // 승률 업데이트
-        user.updateWinRate();
-        userRepository.save(user);
-
-        log.debug("[endGame] 전적 업데이트 완료: playerId={}, playCount={}", playerId, user.getPlayCount());
     }
 
     public void advancePhase(String gameId) {
