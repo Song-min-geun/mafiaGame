@@ -247,7 +247,11 @@ public class GameService {
 
         // 1. Redis 상태 업데이트
         gameState.setStatus(GameStatus.IN_PROGRESS);
-        toNextDayPhase(gameState); // 1일차 낮 시작 및 저장됨
+        gameState.setCurrentPhase(1);
+        gameState.setGamePhase(GamePhase.DAY_DISCUSSION);
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (60 * 1000L)); // 낮 토론 60초
+        gameState.getNightActions().clear();
+        gameStateRepository.save(gameState);
 
         // [AI] 첫 페이즈 추천 문구 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
         // suggestionService.generateAiSuggestionsAsync(gameId,
@@ -305,10 +309,10 @@ public class GameService {
         if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
             return;
 
-        // State Pattern: 페이즈별 상태 객체가 처리
+        // State Pattern: 현재 페이즈 상태 객체
         GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
 
-        // 현재 페이즈 처리 (투표 결과, 밤 행동 등)
+        // 1단계: 현재 페이즈 결과 처리 (투표 집계, 밤 행동 등) — 페이즈 전환하지 않음
         processCurrentPhase(gameState);
 
         // 게임이 종료되었으면 리턴
@@ -316,22 +320,14 @@ public class GameService {
             return;
         }
 
-        // 다음 상태로 전환
+        // 2단계: 다음 상태로 전환 (State Pattern이 전환 책임)
         GamePhaseState nextState = currentState.nextState(gameState);
         nextState.process(gameState);
 
-        // 페이즈 종료 시간 설정 (epoch millis)
+        // 3단계: 페이즈 종료 시간 설정 + 저장 + 타이머 시작
         gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
-
-        // 상태 변경 후 저장 및 알림
         gameStateRepository.save(gameState);
         sendPhaseSwitchMessage(gameState);
-
-        // [AI] 다음 페이즈 문구 미리 생성 - 비활성화 (API 할당량 제한, 채팅 기반 호출만 사용)
-        // suggestionService.generateAiSuggestionsAsync(gameId,
-        // currentState.nextState(gameState).getGamePhase());
-
-        // 다음 페이즈 타이머 시작 (Race Condition 방지: phaseEndTime 직접 전달)
         timerService.startTimer(gameId, gameState.getPhaseEndTime());
     }
 
@@ -469,40 +465,6 @@ public class GameService {
         return true;
     }
 
-    private void toPhase(GameState gameState, GamePhase phase, int durationSeconds) {
-        gameState.setGamePhase(phase);
-        gameState.setPhaseEndTime(System.currentTimeMillis() + (durationSeconds * 1000L));
-
-        // 안전장치: 페이즈 진입 시 이전 데이터 잔재(Zombie Data) 확실히 제거
-        switch (phase) {
-            case DAY_VOTING -> clearVotesFromRedis(gameState.getGameId());
-            case DAY_FINAL_VOTING -> clearFinalVotesFromRedis(gameState.getGameId());
-            case NIGHT_ACTION -> clearNightActionsFromRedis(gameState.getGameId());
-            default -> {
-            }
-        }
-    }
-
-    private void toNextDayPhase(GameState gameState) {
-        gameState.setCurrentPhase(gameState.getCurrentPhase() + 1);
-        toPhase(gameState, GamePhase.DAY_DISCUSSION, 60);
-        gameState.getNightActions().clear();
-        gameStateRepository.save(gameState);
-    }
-
-    private void toNightPhase(GameState gameState) {
-        toPhase(gameState, GamePhase.NIGHT_ACTION, 30); // 밤 30초
-        gameState.getVotes().clear();
-        gameState.getFinalVotes().clear();
-        gameState.setVotedPlayerId(null);
-
-        // 이전 밤의 데이터가 남아있을 수 있으므로 확실히 초기화
-        gameState.getNightActions().clear();
-        clearNightActionsFromRedis(gameState.getGameId());
-
-        // 저장 로직은 호출자가 수행
-    }
-
     private void processDayVoting(GameState gameState) {
         // Redis Hash에서 투표 동기화
         syncVotesFromRedis(gameState);
@@ -510,11 +472,11 @@ public class GameService {
         List<String> topVotedIds = getTopVotedPlayers(gameState.getVotes());
         if (topVotedIds.size() != 1) {
             sendSystemMessage(gameState.getRoomId(), "투표가 무효 처리되어 밤으로 넘어갑니다.");
-            toNightPhase(gameState);
+            // votedPlayerId를 null로 유지 → DayVotingState.nextState()가 NightActionState 반환
         } else {
             String votedId = topVotedIds.get(0);
             gameState.setVotedPlayerId(votedId);
-            toPhase(gameState, GamePhase.DAY_FINAL_DEFENSE, 20); // 최후 변론 45초
+            // votedPlayerId 설정 → DayVotingState.nextState()가 DayFinalDefenseState 반환
 
             findPlayerById(gameState, votedId, player -> sendSystemMessage(gameState.getRoomId(),
                     String.format("투표 결과 %s님이 최다 득표자가 되었습니다. 최후 변론을 시작합니다.", player.getPlayerName())));
@@ -541,10 +503,7 @@ public class GameService {
             });
         }
         clearFinalVotesFromRedis(gameState.getGameId());
-
-        if (checkGameEnd(gameState))
-            return;
-        toNightPhase(gameState);
+        checkGameEnd(gameState);
     }
 
     private void processNight(GameState gameState) {
@@ -553,10 +512,7 @@ public class GameService {
 
         processNightActions(gameState);
         clearNightActionsFromRedis(gameState.getGameId());
-
-        if (checkGameEnd(gameState))
-            return;
-        toNextDayPhase(gameState);
+        checkGameEnd(gameState);
     }
 
     // ========== Redis Hash → GameState 동기화 메서드 ==========

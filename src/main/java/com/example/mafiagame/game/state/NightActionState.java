@@ -16,6 +16,10 @@ public class NightActionState implements GamePhaseState {
     @Override
     public void process(GameState gameState) {
         gameState.setGamePhase(GamePhase.NIGHT_ACTION);
+        // 낮 페이즈 데이터 정리 (이전 toNightPhase에서 하던 작업)
+        gameState.getVotes().clear();
+        gameState.getFinalVotes().clear();
+        gameState.setVotedPlayerId(null);
         gameState.getNightActions().clear();
     }
 
@@ -26,7 +30,7 @@ public class NightActionState implements GamePhaseState {
 
     @Override
     public GamePhaseState nextState(GameState gameState) {
-        gameState.setCurrentPhase(gameState.getCurrentPhase() + 1);
+        // currentPhase 증가는 DayDiscussionState.process()에서 처리
         return new DayDiscussionState();
     }
 
