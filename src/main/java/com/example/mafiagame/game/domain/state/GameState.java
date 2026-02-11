@@ -39,8 +39,6 @@ public class GameState implements Serializable {
 
     private Long phaseEndTime;
 
-    private String winner;
-
     private String votedPlayerId;
 
     @Builder.Default
@@ -114,15 +112,15 @@ public class GameState implements Serializable {
                 .count();
     }
 
-    public String checkWinner() {
+    public Team checkWinner() {
         long mafia = countAliveMafia();
         long citizen = countAliveCitizen();
 
         if (mafia >= citizen) {
-            return "MAFIA";
+            return Team.MAFIA;
         }
         if (mafia == 0) {
-            return "CITIZEN";
+            return Team.CITIZEN;
         }
         return null;
     }
