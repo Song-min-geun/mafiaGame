@@ -282,7 +282,7 @@ public class GameService {
         // ======= 3단계: 부수효과 (DB 커밋 성공 후에만 실행) =======
         // 커밋 전에 실행하면 롤백 시 타이머 중지/Redis 삭제가 복구 불가
         String roomId = gameState.getRoomId();
-        var players = gameState.getPlayers();
+        var players = List.copyOf(gameState.getPlayers());
 
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
