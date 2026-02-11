@@ -240,6 +240,15 @@ public class GameService {
         // DB에도 역할 정보 업데이트하고 싶다면 여기서 GameRepository 호출 필요 (선택사항)
     }
 
+    /**
+     * Initialize the game's first phase (day discussion), persist the initial GameState, and start the phase timer.
+     *
+     * Sets the game status to in-progress, sets the current phase to 1 with GamePhase.DAY_DISCUSSION, clears any pending night actions,
+     * persists the updated GameState, and starts the scheduler timer for the phase end.
+     *
+     * @param gameId the identifier of the game to start
+     * @throws RuntimeException if the game state for the given `gameId` cannot be found
+     */
     private void startGame(String gameId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null)
@@ -304,6 +313,11 @@ public class GameService {
                 });
     }
 
+    /**
+     * Advance the game's state machine: process the current phase's results, transition to and process the next phase, persist the updated state, broadcast the phase switch, and start the phase timer.
+     *
+     * @param gameId the identifier of the game to advance; if the game is not found or not in progress this method is a no-op
+     */
     public void advancePhase(String gameId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
@@ -435,6 +449,16 @@ public class GameService {
         }
     }
 
+    /**
+     * Adjusts the remaining time of the current day discussion phase for a game.
+     *
+     * <p>If the game does not exist or is not in the DAY_DISCUSSION phase, no change is made.</p>
+     *
+     * @param gameId   the id of the game to modify
+     * @param playerId the id of the player requesting the time change (used for notification)
+     * @param seconds  number of seconds to adjust the phase end time; positive to extend, negative to shorten
+     * @return `true` if the phase time was updated, `false` if the game was not found or not in the day discussion phase
+     */
     public boolean updateTime(String gameId, String playerId, int seconds) {
         GameState gameState = getGameState(gameId);
         if (gameState == null)
@@ -465,6 +489,16 @@ public class GameService {
         return true;
     }
 
+    /**
+     * Process and finalize day voting results for the given game state.
+     *
+     * Synchronizes votes from Redis, determines the top-voted player, and updates the game state:
+     * - If exactly one player has the highest votes, sets `votedPlayerId` and announces the start of final defense for that player.
+     * - If there is a tie or no clear top player, announces that the vote is invalid and leaves `votedPlayerId` unset so the flow moves to the night phase.
+     * After processing, clears in-memory votes and removes the corresponding Redis vote entries.
+     *
+     * @param gameState the current game state to evaluate and update
+     */
     private void processDayVoting(GameState gameState) {
         // Redis Hash에서 투표 동기화
         syncVotesFromRedis(gameState);
@@ -485,6 +519,15 @@ public class GameService {
         clearVotesFromRedis(gameState.getGameId());
     }
 
+    /**
+     * Apply the final (agree/disagree) votes for the current voted player and handle the outcome.
+     *
+     * Synchronizes final votes from Redis, counts `AGREE` vs `DISAGREE`, and if `AGREE` outvotes `DISAGREE`
+     * marks the voted player as dead and broadcasts a system message to the room. Always clears the final-vote
+     * entries from Redis afterwards and invokes game-end checks.
+     *
+     * @param gameState current in-memory game state to update
+     */
     private void processFinalVoting(GameState gameState) {
         // Redis Hash에서 최종 투표 동기화
         syncFinalVotesFromRedis(gameState);
@@ -506,6 +549,13 @@ public class GameService {
         checkGameEnd(gameState);
     }
 
+    /**
+     * Processes a game's night phase: synchronizes night actions, executes them, clears stored actions, and evaluates game end.
+     *
+     * Retrieves night actions from Redis into the provided GameState, executes all role-specific night actions (including mafia attacks, doctor protection, and police investigations), removes the persisted night actions for the game, and checks whether the game has reached a terminal state.
+     *
+     * @param gameState the current game state to apply night actions to (must contain the game's id and player states)
+     */
     private void processNight(GameState gameState) {
         // Redis Hash에서 밤 행동 동기화
         syncNightActionsFromRedis(gameState);
