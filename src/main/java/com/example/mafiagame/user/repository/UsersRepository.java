@@ -5,7 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -13,8 +13,6 @@ import org.springframework.stereotype.Repository;
 import com.example.mafiagame.user.domain.AuthProvider;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
-
-import jakarta.persistence.LockModeType;
 
 @Repository
 public interface UsersRepository extends JpaRepository<Users, Long> {
@@ -31,14 +29,14 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
     List<Top10UserResponse> findTopRanking(Pageable pageable);
 
     /**
-     * Pessimistic Lock (비관적 락) 적용된 조회
-     * SELECT ... FOR UPDATE 쿼리 실행
-     * 
-     * InnoDB 분석 포인트:
-     * - PK 동등 조건(=) 검색이므로 Record Lock만 발생 (Gap Lock 없음)
-     * - 다른 트랜잭션은 이 행에 대해 쓰기/락 획득 불가 (읽기는 MVCC로 가능)
+     * 원자적 전적 업데이트 (단일 UPDATE 쿼리로 동시성 안전)
+     * - SELECT 없이 DB 레벨에서 playCount++, winCount++ 처리
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT u FROM Users u WHERE u.userId = :userId")
-    Optional<Users> findByIdWithPessimisticLock(@Param("userId") Long userId);
+    @Modifying
+    @Query("UPDATE Users u SET " +
+            "u.playCount = u.playCount + 1, " +
+            "u.winCount = u.winCount + CASE WHEN :isWin = true THEN 1 ELSE 0 END, " +
+            "u.winRate = (u.winCount + CASE WHEN :isWin = true THEN 1.0 ELSE 0.0 END) / (u.playCount + 1.0) " +
+            "WHERE u.userLoginId = :playerId")
+    void updateStats(@Param("playerId") String playerId, @Param("isWin") boolean isWin);
 }

@@ -1,6 +1,8 @@
 package com.example.mafiagame.chat.service;
 
 import com.example.mafiagame.chat.dto.ChatMessage;
+import com.example.mafiagame.game.domain.state.Team;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
@@ -87,8 +89,8 @@ public class WebSocketMessageBroadcaster {
     /**
      * 게임 종료 메시지
      */
-    public void sendGameEnded(String roomId, String winner, Object players) {
-        broadcastToRoom(roomId, Map.of("type", "GAME_ENDED", "winner", winner, "players", players));
+    public void sendGameEnded(String roomId, Team winnerTeam, Object players) {
+        broadcastToRoom(roomId, Map.of("type", "GAME_ENDED", "winner", winnerTeam, "players", players));
     }
 
     /**
