@@ -39,8 +39,6 @@ public class GameState implements Serializable {
 
     private Long phaseEndTime;
 
-    private String winner;
-
     private String votedPlayerId;
 
     @Builder.Default
