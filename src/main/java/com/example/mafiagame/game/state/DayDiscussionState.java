@@ -16,6 +16,9 @@ public class DayDiscussionState implements GamePhaseState {
     @Override
     public void process(GameState gameState) {
         gameState.setGamePhase(GamePhase.DAY_DISCUSSION);
+        // 다음 날로 진행 (이전 toNextDayPhase에서 하던 작업)
+        gameState.setCurrentPhase(gameState.getCurrentPhase() + 1);
+        gameState.getNightActions().clear();
     }
 
     @Override
