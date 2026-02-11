@@ -35,6 +35,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
 
 import java.time.LocalDateTime;
@@ -256,60 +258,46 @@ public class GameService {
     }
 
     @Transactional
-    public void endGame(String gameId, String winner) {
-        // 1. Redis 상태 조회
+    public void endGame(String gameId, Team winnerTeam) {
+        // ======= 1단계: 검증 (실패 시 즉시 중단, 트랜잭션 롤백) =======
         GameState gameState = getGameState(gameId);
         if (gameState == null)
             return; // 이미 종료된 게임일 수 있음
 
-        // 2. MySQL 업데이트 (종료 시간, 승자, 전적)
-        gameRepository.findById(gameId).ifPresent(game -> {
-            game.setStatus(GameStatus.ENDED);
-            game.setEndTime(LocalDateTime.now());
-            gameRepository.save(game);
-        });
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(ErrorCode.GAME_NOT_FOUND::commonException);
 
-        // 각 플레이어의 전적 업데이트 (개별 락으로 보호)
-        boolean isCitizenWin = "CITIZEN".equals(winner);
+        // ======= 2단계: DB 변경 (트랜잭션으로 원자적 처리) =======
+        game.endGame(winnerTeam);
+
+        boolean isCitizenWin = winnerTeam == Team.CITIZEN;
         for (GamePlayerState gp : gameState.getPlayers()) {
             if (gp.getPlayerId() == null)
                 continue;
-
-            updateUserStats(gp.getPlayerId(), isCitizenWin, gp.getTeam() == Team.MAFIA);
+            boolean isMafia = gp.getTeam() == Team.MAFIA;
+            boolean isWin = (isCitizenWin && !isMafia) || (!isCitizenWin && isMafia);
+            userRepository.updateStats(gp.getPlayerId(), isWin);
         }
 
-        // 3. 타이머 중지
-        timerService.stopTimer(gameId);
+        // ======= 3단계: 부수효과 (DB 커밋 성공 후에만 실행) =======
+        // 커밋 전에 실행하면 롤백 시 타이머 중지/Redis 삭제가 복구 불가
+        String roomId = gameState.getRoomId();
+        var players = List.copyOf(gameState.getPlayers());
 
-        // 4. 종료 메시지 전송
-        messageBroadcaster.sendGameEnded(gameState.getRoomId(), winner, gameState.getPlayers());
-
-        // 5. Redis 데이터 삭제 (게임 끝!)
-        gameStateRepository.delete(gameId);
-    }
-
-    /**
-     * 유저별 전적 업데이트
-     */
-    private void updateUserStats(String playerId, boolean isCitizenWin, boolean isMafia) {
-        Users user = userRepository.findByUserLoginId(playerId).orElse(null);
-        if (user == null) {
-            log.warn("[endGame] 유저를 찾을 수 없음: playerId={}", playerId);
-            return;
-        }
-
-        user.incrementPlayCount();
-
-        // 승리 조건: 시민팀 승리 & !마피아 OR 마피아팀 승리 & 마피아
-        if ((isCitizenWin && !isMafia) || (!isCitizenWin && isMafia)) {
-            user.incrementWinCount();
-        }
-
-        // 승률 업데이트
-        user.updateWinRate();
-        userRepository.save(user);
-
-        log.debug("[endGame] 전적 업데이트 완료: playerId={}, playCount={}", playerId, user.getPlayCount());
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            timerService.stopTimer(gameId);
+                            messageBroadcaster.sendGameEnded(roomId, winnerTeam, players);
+                            gameStateRepository.delete(gameId);
+                            log.info("[endGame] 게임 종료 완료: gameId={}, winner={}", gameId, winnerTeam);
+                        } catch (Exception e) {
+                            log.error("[endGame] 부수효과 처리 중 오류 (DB는 정상 커밋됨): gameId={}", gameId, e);
+                        }
+                    }
+                });
     }
 
     public void advancePhase(String gameId) {
@@ -364,10 +352,10 @@ public class GameService {
     }
 
     private boolean checkGameEnd(GameState gameState) {
-        String winner = gameState.checkWinner();
-        if (winner != null) {
+        Team winnerTeam = gameState.checkWinner();
+        if (winnerTeam != null) {
             gameState.setStatus(GameStatus.ENDED);
-            endGame(gameState.getGameId(), winner);
+            endGame(gameState.getGameId(), winnerTeam);
             return true;
         }
         return false;

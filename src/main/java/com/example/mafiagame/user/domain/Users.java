@@ -9,7 +9,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
-// import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -62,14 +61,6 @@ public class Users {
     @Builder.Default
     @Column(nullable = false)
     private Double winRate = 0.0;
-
-    /**
-     * Optimistic Lock (낙관적 락)용 버전 필드
-     * UPDATE 시 WHERE version = X 조건 자동 추w가
-     * 버전 불일치 시 ObjectOptimisticLockingFailureException 발생
-     */
-    // @Version
-    // private Long version;
 
     public void updateUserLoginPassword(String userLoginPassword) {
         this.userLoginPassword = userLoginPassword;
