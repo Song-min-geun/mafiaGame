@@ -3,6 +3,8 @@ package com.example.mafiagame.game.domain.entity;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -46,8 +48,9 @@ public class Game {
     @Column(name = "winner")
     private Team winnerTeam = null;
 
+    @Builder.Default
     @Column(name = "start_time", nullable = false)
-    private LocalDateTime startTime;
+    private LocalDateTime startTime = LocalDateTime.now();
 
     @Column(name = "end_time")
     private LocalDateTime endTime;
@@ -62,9 +65,14 @@ public class Game {
      */
     public static Game createNew(String roomId) {
         return Game.builder()
-                .gameId("game_" + System.currentTimeMillis() + "_" + new java.util.Random().nextInt(1000))
+                .gameId("game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000))
                 .roomId(roomId)
-                .startTime(LocalDateTime.now())
                 .build();
+    }
+
+    public void endGame(Team winnerTeam) {
+        this.winnerTeam = winnerTeam;
+        this.status = GameStatus.ENDED;
+        this.endTime = LocalDateTime.now();
     }
 }
