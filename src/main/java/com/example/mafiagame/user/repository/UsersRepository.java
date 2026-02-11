@@ -32,11 +32,11 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
      * 원자적 전적 업데이트 (단일 UPDATE 쿼리로 동시성 안전)
      * - SELECT 없이 DB 레벨에서 playCount++, winCount++ 처리
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE Users u SET " +
             "u.playCount = u.playCount + 1, " +
             "u.winCount = u.winCount + CASE WHEN :isWin = true THEN 1 ELSE 0 END, " +
             "u.winRate = (u.winCount + CASE WHEN :isWin = true THEN 1.0 ELSE 0.0 END) / (u.playCount + 1.0) " +
             "WHERE u.userLoginId = :playerId")
-    void updateStats(@Param("playerId") String playerId, @Param("isWin") boolean isWin);
+    int updateStats(@Param("playerId") String playerId, @Param("isWin") boolean isWin);
 }
