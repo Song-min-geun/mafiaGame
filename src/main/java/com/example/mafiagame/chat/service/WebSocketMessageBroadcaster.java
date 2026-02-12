@@ -48,13 +48,10 @@ public class WebSocketMessageBroadcaster {
      * 특정 사용자에게 메시지 전송
      */
     public void sendToUser(String userId, Object message) {
-        if (!isUserConnected(userId)) {
-            log.warn("메시지 수신자가 WebSocket에 등록되지 않음: {}", userId);
-            return;
-        }
-
         try {
-            messagingTemplate.convertAndSendToUser(userId, "/queue/private", message);
+            String destination = "/topic/private." + userId;
+            messagingTemplate.convertAndSend(destination, message);
+            log.info("[sendToUser] 전송 완료: userId={}, dest={}", userId, destination);
         } catch (Exception e) {
             log.error("개인 메시지 전송 실패: userId={}, error: {}", userId, e.getMessage());
         }
