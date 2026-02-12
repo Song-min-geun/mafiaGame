@@ -534,23 +534,6 @@ export function handleGameStart(game) {
 
     addSystemMessage('게임이 시작되었습니다.');
 
-    // 현재 플레이어의 역할 정보 표시
-    const user = getCurrentUser();
-    if (user && game.players) {
-        const currentPlayer = game.players.find(p => p.playerId === user.userLoginId);
-        if (currentPlayer && currentPlayer.role) {
-            const roleName = getRoleDisplayName(currentPlayer.role);
-            const roleDescriptions = {
-                'MAFIA': '밤에 한 명을 지목하여 제거할 수 있습니다.',
-                'POLICE': '밤에 한 명을 지목하여 마피아인지 확인할 수 있습니다.',
-                'DOCTOR': '밤에 한 명을 지목하여 마피아의 공격으로부터 보호할 수 있습니다.',
-                'CITIZEN': '특별한 능력이 없습니다. 추리를 통해 마피아를 찾아내세요.'
-            };
-            const roleDesc = roleDescriptions[currentPlayer.role] || '';
-            addSystemMessage(`당신의 역할: ${roleName} - ${roleDesc}`);
-        }
-    }
-
     updateGameUI(game);
     updateGameButtons();
     updateTimerDisplay(game);  // Start the timer

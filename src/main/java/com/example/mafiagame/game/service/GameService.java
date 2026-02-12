@@ -818,6 +818,8 @@ public class GameService {
     }
 
     private void sendPoliceInvestigationResult(GamePlayerState police, GamePlayerState target) {
+        log.info("[경찰조사] 결과 전송: police={}, target={}, isMafia={}",
+                police.getPlayerId(), target.getPlayerName(), target.getRole() == PlayerRole.MAFIA);
         sendPrivateMessage(police.getPlayerId(), Map.of(
                 "type", "PRIVATE_MESSAGE",
                 "messageType", "POLICE_INVESTIGATION",

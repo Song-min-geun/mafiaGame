@@ -12,7 +12,7 @@ export const API_ENDPOINTS = {
 };
 
 export const WS_TOPICS = {
-    PRIVATE: (userId) => `/user/queue/private`,
+    PRIVATE: (userId) => `/topic/private.${userId}`,
     ROOM: (roomId) => `/topic/room.${roomId}`,
     LOBBY: '/topic/rooms'
 };
