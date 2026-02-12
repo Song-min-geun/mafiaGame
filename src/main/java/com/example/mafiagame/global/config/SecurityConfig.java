@@ -60,7 +60,7 @@ public class SecurityConfig {
                                                 .permitAll()
                                                 // API 엔드포인트 중 인증 불필요한 것들
                                                 .requestMatchers("/api/users/register", "/api/users/login",
-                                                                "/api/games")
+                                                                "/api/games", "/api/auth/refresh")
                                                 .permitAll()
                                                 // 테스트용 API (개발 환경에서만 사용)
                                                 .requestMatchers("/api/test/**").permitAll()
