@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.service.PhaseResultProcessor;
 
 /**
  * 최종 투표 (찬반) 페이즈 상태
@@ -16,6 +17,11 @@ public class DayFinalVotingState implements GamePhaseState {
     @Override
     public void process(GameState gameState) {
         gameState.setGamePhase(GamePhase.DAY_FINAL_VOTING);
+    }
+
+    @Override
+    public void onExit(GameState gameState, PhaseResultProcessor processor) {
+        processor.processFinalVoting(gameState);
     }
 
     @Override

@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.service.PhaseResultProcessor;
 
 /**
  * 낮 투표 페이즈 상태
@@ -19,6 +20,11 @@ public class DayVotingState implements GamePhaseState {
     }
 
     @Override
+    public void onExit(GameState gameState, PhaseResultProcessor processor) {
+        processor.processDayVoting(gameState);
+    }
+
+    @Override
     public int getDurationSeconds() {
         return DURATION_SECONDS;
     }
@@ -26,7 +32,7 @@ public class DayVotingState implements GamePhaseState {
     @Override
     public GamePhaseState nextState(GameState gameState) {
         // 투표 결과에 따라 최후 변론 또는 밤으로 이동
-        // 투표 처리는 process()에서 완료되었으며, 최다 득표자가 있으면 votedPlayerId가 설정됨
+        // 투표 처리는 onExit()에서 완료되었으며, 최다 득표자가 있으면 votedPlayerId가 설정됨
         if (gameState.getVotedPlayerId() != null) {
             return new DayFinalDefenseState();
         }

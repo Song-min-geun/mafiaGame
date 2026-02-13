@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.service.PhaseResultProcessor;
 
 /**
  * 밤 행동 페이즈 상태
@@ -29,6 +30,11 @@ public class NightActionState implements GamePhaseState {
         gameState.getFinalVotes().clear();
         gameState.setVotedPlayerId(null);
         gameState.getNightActions().clear();
+    }
+
+    @Override
+    public void onExit(GameState gameState, PhaseResultProcessor processor) {
+        processor.processNight(gameState);
     }
 
     @Override
