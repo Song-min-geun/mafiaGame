@@ -59,6 +59,7 @@ public class PhaseResultProcessor {
         List<String> topVotedIds = gameState.getTopVotedPlayerIds();
         if (topVotedIds.size() != 1) {
             sendSystemMessage(gameState.getRoomId(), "투표가 무효 처리되어 밤으로 넘어갑니다.");
+            gameState.setVotedPlayerId(null);
         } else {
             String votedId = topVotedIds.get(0);
             gameState.setVotedPlayerId(votedId);

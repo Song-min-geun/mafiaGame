@@ -256,8 +256,8 @@ public class GameService {
         // 1. Redis 상태 업데이트
         gameState.setStatus(GameStatus.IN_PROGRESS);
         gameState.setCurrentPhase(1);
-        gameState.setGamePhase(GamePhase.DAY_DISCUSSION);
-        gameState.setPhaseEndTime(System.currentTimeMillis() + (60 * 1000L)); // 낮 토론 60초
+        gameState.setGamePhase(GamePhase.NIGHT_ACTION);
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (15 * 1000L)); // 밤행동 15초
         gameState.getNightActions().clear();
         gameStateRepository.save(gameState);
 
@@ -335,6 +335,7 @@ public class GameService {
         Team winnerTeam = phaseResultProcessor.getWinnerIfGameEnded(gameState);
         if (winnerTeam != null) {
             gameState.setStatus(GameStatus.ENDED);
+            gameStateRepository.save(gameState);
             endGame(gameId, winnerTeam);
             return;
         }
