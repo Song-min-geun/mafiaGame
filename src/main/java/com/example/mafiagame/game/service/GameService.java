@@ -10,15 +10,11 @@ import com.example.mafiagame.game.domain.state.GameStatus;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.domain.state.Team;
 import com.example.mafiagame.chat.domain.ChatUser;
-import com.example.mafiagame.game.strategy.RoleActionFactory;
-import com.example.mafiagame.game.strategy.RoleActionStrategy;
-import com.example.mafiagame.game.strategy.NightActionResult;
 import com.example.mafiagame.game.state.GamePhaseFactory;
 import com.example.mafiagame.game.state.GamePhaseState;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.repository.UsersRepository;
 
-import java.util.function.Consumer;
 import java.util.concurrent.TimeUnit;
 
 import com.example.mafiagame.game.repository.GameRepository;
@@ -45,7 +41,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
+
 import java.util.stream.Collectors;
 
 @Service
@@ -62,14 +58,13 @@ public class GameService {
 
     @Lazy
     private final SchedulerTimerService timerService;
-    private final RoleActionFactory roleActionFactory;
     private final GamePhaseFactory gamePhaseFactory;
+    private final PhaseResultProcessor phaseResultProcessor;
 
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
 
     private static final String ROOM_KEY_PREFIX = "chatroom:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
-    private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
     private static final String GAME_CREATE_LOCK_PREFIX = "lock:game:create:";
 
@@ -88,13 +83,13 @@ public class GameService {
                 if (existingGame != null) {
                     return existingGame;
                 }
-                throw new RuntimeException("게임 생성 중입니다. 잠시 후 다시 시도해주세요.");
+                throw ErrorCode.GAME_CREATE_IN_PROGRESS.commonException();
             }
 
             // ChatRoom 정보 Redis에서 조회 (Source of Truth)
             ChatRoom chatRoom = chatRoomRedisTemplate.opsForValue().get(ROOM_KEY_PREFIX + roomId);
             if (chatRoom == null) {
-                throw new RuntimeException("채팅방을 찾을 수 없습니다: " + roomId);
+                throw ErrorCode.ROOM_NOT_FOUND.commonException();
             }
 
             // 중복 게임 생성 방지: 이미 진행 중인 게임이 있는지 확인
@@ -110,7 +105,7 @@ public class GameService {
 
             // 참가자 수 검증
             if (participants.size() < 4) {
-                throw new RuntimeException("게임을 시작하려면 최소 4명이 필요합니다."); // TODO: 에러코드로 변경
+                throw ErrorCode.INSUFFICIENT_PLAYERS.commonException();
             }
 
             String gameId = "game_" + System.currentTimeMillis() + "_" + new Random().nextInt(1000);
@@ -133,7 +128,7 @@ public class GameService {
             List<GamePlayer> dbPlayers = participants.stream().map(participant -> {
                 Users user = userMap.get(participant.getUserId());
                 if (user == null) {
-                    throw new RuntimeException("User not found: " + participant.getUserId());
+                    throw ErrorCode.USER_NOT_FOUND.commonException();
                 }
                 return GamePlayer.builder()
                         .game(game)
@@ -182,7 +177,7 @@ public class GameService {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("게임 생성 중 인터럽트 발생", e);
+            throw ErrorCode.GAME_CREATE_INTERRUPTED.commonException();
         } finally {
             // 락 해제
             if (lock.isHeldByCurrentThread()) {
@@ -241,24 +236,28 @@ public class GameService {
     }
 
     /**
-     * Initialize the game's first phase (day discussion), persist the initial GameState, and start the phase timer.
+     * Initialize the game's first phase (day discussion), persist the initial
+     * GameState, and start the phase timer.
      *
-     * Sets the game status to in-progress, sets the current phase to 1 with GamePhase.DAY_DISCUSSION, clears any pending night actions,
-     * persists the updated GameState, and starts the scheduler timer for the phase end.
+     * Sets the game status to in-progress, sets the current phase to 1 with
+     * GamePhase.DAY_DISCUSSION, clears any pending night actions,
+     * persists the updated GameState, and starts the scheduler timer for the phase
+     * end.
      *
      * @param gameId the identifier of the game to start
-     * @throws RuntimeException if the game state for the given `gameId` cannot be found
+     * @throws RuntimeException if the game state for the given `gameId` cannot be
+     *                          found
      */
     private void startGame(String gameId) {
         GameState gameState = getGameState(gameId);
         if (gameState == null)
-            throw new RuntimeException("게임을 찾을 수 없습니다: " + gameId);
+            throw ErrorCode.GAMESTATE_NOT_FOUND.commonException();
 
         // 1. Redis 상태 업데이트
         gameState.setStatus(GameStatus.IN_PROGRESS);
         gameState.setCurrentPhase(1);
-        gameState.setGamePhase(GamePhase.DAY_DISCUSSION);
-        gameState.setPhaseEndTime(System.currentTimeMillis() + (60 * 1000L)); // 낮 토론 60초
+        gameState.setGamePhase(GamePhase.NIGHT_ACTION);
+        gameState.setPhaseEndTime(System.currentTimeMillis() + (15 * 1000L)); // 밤행동 15초
         gameState.getNightActions().clear();
         gameStateRepository.save(gameState);
 
@@ -314,9 +313,12 @@ public class GameService {
     }
 
     /**
-     * Advance the game's state machine: process the current phase's results, transition to and process the next phase, persist the updated state, broadcast the phase switch, and start the phase timer.
+     * Advance the game's state machine: process the current phase's results,
+     * transition to and process the next phase, persist the updated state,
+     * broadcast the phase switch, and start the phase timer.
      *
-     * @param gameId the identifier of the game to advance; if the game is not found or not in progress this method is a no-op
+     * @param gameId the identifier of the game to advance; if the game is not found
+     *               or not in progress this method is a no-op
      */
     public void advancePhase(String gameId) {
         GameState gameState = getGameState(gameId);
@@ -326,11 +328,15 @@ public class GameService {
         // State Pattern: 현재 페이즈 상태 객체
         GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
 
-        // 1단계: 현재 페이즈 결과 처리 (투표 집계, 밤 행동 등) — 페이즈 전환하지 않음
-        processCurrentPhase(gameState);
+        // 1단계: 현재 페이즈 결과 처리 (State Pattern의 onExit에 위임)
+        currentState.onExit(gameState, phaseResultProcessor);
 
-        // 게임이 종료되었으면 리턴
-        if (gameState.getStatus() != GameStatus.IN_PROGRESS) {
+        // 게임이 종료되었으면 endGame 호출 후 리턴
+        Team winnerTeam = phaseResultProcessor.getWinnerIfGameEnded(gameState);
+        if (winnerTeam != null) {
+            gameState.setStatus(GameStatus.ENDED);
+            gameStateRepository.save(gameState);
+            endGame(gameId, winnerTeam);
             return;
         }
 
@@ -343,32 +349,6 @@ public class GameService {
         gameStateRepository.save(gameState);
         sendPhaseSwitchMessage(gameState);
         timerService.startTimer(gameId, gameState.getPhaseEndTime());
-    }
-
-    private void processCurrentPhase(GameState gameState) {
-        switch (gameState.getGamePhase()) {
-            case DAY_DISCUSSION -> flushExtendVotingList(gameState);
-            case DAY_VOTING -> processDayVoting(gameState);
-            case DAY_FINAL_VOTING -> processFinalVoting(gameState);
-            case NIGHT_ACTION -> processNight(gameState);
-            default -> {
-            }
-        }
-    }
-
-    private void flushExtendVotingList(GameState gameState) {
-        gameState.getVotingTimeExtensionsUsed().clear();
-        gameStateRepository.save(gameState);
-    }
-
-    private boolean checkGameEnd(GameState gameState) {
-        Team winnerTeam = gameState.checkWinner();
-        if (winnerTeam != null) {
-            gameState.setStatus(GameStatus.ENDED);
-            endGame(gameState.getGameId(), winnerTeam);
-            return true;
-        }
-        return false;
     }
 
     /**
@@ -402,7 +382,7 @@ public class GameService {
         if (!checkFinalVoteValidity(gameState, voterId))
             return;
 
-        String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
+        String finalVotesKey = "game:finalvotes:" + gameId;
         try {
             stringRedisTemplate.opsForHash().put(finalVotesKey, voterId, voteChoice);
             log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
@@ -412,7 +392,6 @@ public class GameService {
     }
 
     private boolean checkFinalVoteValidity(GameState gameState, String voterId) {
-        // 변론자(최다 득표자) 본인은 투표 불가
         if (findActivePlayerById(gameState, voterId) == null || voterId.equals(gameState.getVotedPlayerId())) {
             return false;
         }
@@ -434,8 +413,6 @@ public class GameService {
         String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
         try {
             stringRedisTemplate.opsForHash().put(nightActionsKey, actorId, targetId);
-            // stringRedisTemplate.expire(nightActionsKey, 30, TimeUnit.MINUTES); // 최적화: 매
-            // 요청마다 만료 시간 갱신 제외 (벤치마크용)
             log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
 
             // 경찰은 즉시 결과 확인
@@ -452,12 +429,18 @@ public class GameService {
     /**
      * Adjusts the remaining time of the current day discussion phase for a game.
      *
-     * <p>If the game does not exist or is not in the DAY_DISCUSSION phase, no change is made.</p>
+     * <p>
+     * If the game does not exist or is not in the DAY_DISCUSSION phase, no change
+     * is made.
+     * </p>
      *
      * @param gameId   the id of the game to modify
-     * @param playerId the id of the player requesting the time change (used for notification)
-     * @param seconds  number of seconds to adjust the phase end time; positive to extend, negative to shorten
-     * @return `true` if the phase time was updated, `false` if the game was not found or not in the day discussion phase
+     * @param playerId the id of the player requesting the time change (used for
+     *                 notification)
+     * @param seconds  number of seconds to adjust the phase end time; positive to
+     *                 extend, negative to shorten
+     * @return `true` if the phase time was updated, `false` if the game was not
+     *         found or not in the day discussion phase
      */
     public boolean updateTime(String gameId, String playerId, int seconds) {
         GameState gameState = getGameState(gameId);
@@ -468,17 +451,12 @@ public class GameService {
             return false;
         }
 
-        // 시간 조절: PhaseEndTime을 앞당기거나 뒤로 미룸
         if (gameState.getPhaseEndTime() != null) {
             gameState.setPhaseEndTime(gameState.getPhaseEndTime() + (seconds * 1000L));
         }
 
         gameStateRepository.save(gameState);
-
-        // 변경된 시간 브로드캐스트
         sendTimerUpdate(gameState);
-
-        // 타이머 재설정 (Race Condition 방지: phaseEndTime 직접 전달)
         timerService.startTimer(gameId, gameState.getPhaseEndTime());
 
         GamePlayerState player = findPlayerById(gameState, playerId);
@@ -489,187 +467,7 @@ public class GameService {
         return true;
     }
 
-    /**
-     * Process and finalize day voting results for the given game state.
-     *
-     * Synchronizes votes from Redis, determines the top-voted player, and updates the game state:
-     * - If exactly one player has the highest votes, sets `votedPlayerId` and announces the start of final defense for that player.
-     * - If there is a tie or no clear top player, announces that the vote is invalid and leaves `votedPlayerId` unset so the flow moves to the night phase.
-     * After processing, clears in-memory votes and removes the corresponding Redis vote entries.
-     *
-     * @param gameState the current game state to evaluate and update
-     */
-    private void processDayVoting(GameState gameState) {
-        // Redis Hash에서 투표 동기화
-        syncVotesFromRedis(gameState);
-
-        List<String> topVotedIds = getTopVotedPlayers(gameState.getVotes());
-        if (topVotedIds.size() != 1) {
-            sendSystemMessage(gameState.getRoomId(), "투표가 무효 처리되어 밤으로 넘어갑니다.");
-            // votedPlayerId를 null로 유지 → DayVotingState.nextState()가 NightActionState 반환
-        } else {
-            String votedId = topVotedIds.get(0);
-            gameState.setVotedPlayerId(votedId);
-            // votedPlayerId 설정 → DayVotingState.nextState()가 DayFinalDefenseState 반환
-
-            findPlayerById(gameState, votedId, player -> sendSystemMessage(gameState.getRoomId(),
-                    String.format("투표 결과 %s님이 최다 득표자가 되었습니다. 최후 변론을 시작합니다.", player.getPlayerName())));
-        }
-        gameState.getVotes().clear();
-        clearVotesFromRedis(gameState.getGameId());
-    }
-
-    /**
-     * Apply the final (agree/disagree) votes for the current voted player and handle the outcome.
-     *
-     * Synchronizes final votes from Redis, counts `AGREE` vs `DISAGREE`, and if `AGREE` outvotes `DISAGREE`
-     * marks the voted player as dead and broadcasts a system message to the room. Always clears the final-vote
-     * entries from Redis afterwards and invokes game-end checks.
-     *
-     * @param gameState current in-memory game state to update
-     */
-    private void processFinalVoting(GameState gameState) {
-        // Redis Hash에서 최종 투표 동기화
-        syncFinalVotesFromRedis(gameState);
-
-        // Map의 values를 사용하여 찬반 카운트
-        long agree = gameState.getFinalVotes().values().stream()
-                .filter(vote -> "AGREE".equals(vote)).count();
-        long disagree = gameState.getFinalVotes().values().stream()
-                .filter(vote -> "DISAGREE".equals(vote)).count();
-
-        if (agree > disagree) {
-            findPlayerById(gameState, gameState.getVotedPlayerId(), player -> {
-                player.setAlive(false);
-                sendSystemMessage(gameState.getRoomId(),
-                        String.format("최종 투표 결과, %s님이 처형되었습니다.", player.getPlayerName()));
-            });
-        }
-        clearFinalVotesFromRedis(gameState.getGameId());
-        checkGameEnd(gameState);
-    }
-
-    /**
-     * Processes a game's night phase: synchronizes night actions, executes them, clears stored actions, and evaluates game end.
-     *
-     * Retrieves night actions from Redis into the provided GameState, executes all role-specific night actions (including mafia attacks, doctor protection, and police investigations), removes the persisted night actions for the game, and checks whether the game has reached a terminal state.
-     *
-     * @param gameState the current game state to apply night actions to (must contain the game's id and player states)
-     */
-    private void processNight(GameState gameState) {
-        // Redis Hash에서 밤 행동 동기화
-        syncNightActionsFromRedis(gameState);
-
-        processNightActions(gameState);
-        clearNightActionsFromRedis(gameState.getGameId());
-        checkGameEnd(gameState);
-    }
-
-    // ========== Redis Hash → GameState 동기화 메서드 ==========
-
-    private void syncVotesFromRedis(GameState gameState) {
-        String votesKey = VOTE_KEY_PREFIX + gameState.getGameId();
-        try {
-            var votes = stringRedisTemplate.opsForHash().entries(votesKey);
-            gameState.getVotes().clear();
-            votes.forEach((voterId, targetId) -> gameState.getVotes().put((String) voterId, (String) targetId));
-            log.debug("[동기화] 투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
-        } catch (Exception e) {
-            log.error("[동기화] 투표 로드 실패: gameId={}", gameState.getGameId(), e);
-        }
-    }
-
-    private void syncFinalVotesFromRedis(GameState gameState) {
-        String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameState.getGameId();
-        try {
-            var votes = stringRedisTemplate.opsForHash().entries(finalVotesKey);
-            gameState.getFinalVotes().clear();
-            votes.forEach(
-                    (voterId, voteChoice) -> gameState.getFinalVotes().put((String) voterId, (String) voteChoice));
-            log.debug("[동기화] 최종투표 {}건 로드: gameId={}", votes.size(), gameState.getGameId());
-        } catch (Exception e) {
-            log.error("[동기화] 최종투표 로드 실패: gameId={}", gameState.getGameId(), e);
-        }
-    }
-
-    private void syncNightActionsFromRedis(GameState gameState) {
-        String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameState.getGameId();
-        try {
-            var actions = stringRedisTemplate.opsForHash().entries(nightActionsKey);
-            gameState.getNightActions().clear();
-            actions.forEach(
-                    (actorId, targetId) -> gameState.getNightActions().put((String) actorId, (String) targetId));
-            log.debug("[동기화] 밤행동 {}건 로드: gameId={}", actions.size(), gameState.getGameId());
-        } catch (Exception e) {
-            log.error("[동기화] 밤행동 로드 실패: gameId={}", gameState.getGameId(), e);
-        }
-    }
-
-    private void clearVotesFromRedis(String gameId) {
-        stringRedisTemplate.delete(VOTE_KEY_PREFIX + gameId);
-    }
-
-    private void clearFinalVotesFromRedis(String gameId) {
-        stringRedisTemplate.delete(FINAL_VOTE_KEY_PREFIX + gameId);
-    }
-
-    private void clearNightActionsFromRedis(String gameId) {
-        stringRedisTemplate.delete(NIGHT_ACTION_KEY_PREFIX + gameId);
-    }
-
-    private void processNightActions(GameState gameState) {
-        List<NightActionResult> results = new ArrayList<>();
-
-        for (Map.Entry<String, String> action : gameState.getNightActions().entrySet()) {
-            String actorId = action.getKey();
-            String targetId = action.getValue();
-
-            GamePlayerState actor = findPlayerById(gameState, actorId);
-            GamePlayerState target = findPlayerById(gameState, targetId);
-
-            if (actor == null || target == null)
-                continue;
-
-            RoleActionStrategy strategy = roleActionFactory.getStrategy(actor.getRole());
-            if (strategy != null) {
-                NightActionResult result = strategy.execute(gameState, actor, target);
-                results.add(result);
-
-                // 경찰은 즉시 결과 전송
-                if (actor.getRole() == PlayerRole.POLICE) {
-                    sendPoliceInvestigationResult(actor, target);
-                }
-            }
-        }
-
-        // 마피아 공격 결과 계산
-        String mafiaTargetId = results.stream()
-                .filter(r -> r.getActorRole() == PlayerRole.MAFIA)
-                .collect(Collectors.groupingBy(NightActionResult::getTargetId, Collectors.counting()))
-                .entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(null);
-
-        // 의사 보호 대상 확인
-        String doctorTargetId = results.stream()
-                .filter(r -> r.getActorRole() == PlayerRole.DOCTOR)
-                .map(NightActionResult::getTargetId)
-                .findFirst()
-                .orElse(null);
-
-        // 결과 처리
-        if (mafiaTargetId != null && !mafiaTargetId.equals(doctorTargetId)) {
-            findPlayerById(gameState, mafiaTargetId, killed -> {
-                killed.setAlive(false);
-                sendSystemMessage(gameState.getRoomId(), "지난 밤, " + killed.getPlayerName() + "님이 마피아의 공격으로 사망했습니다.");
-            });
-        } else {
-            sendSystemMessage(gameState.getRoomId(), "지난 밤, 아무 일도 일어나지 않았습니다.");
-        }
-    }
-
-    // --- Utility Methods ---
+    // --- Query Methods ---
 
     public GameState getGameState(String gameId) {
         return gameStateRepository.findById(gameId).orElse(null);
@@ -689,101 +487,22 @@ public class GameService {
                 .orElse(null);
     }
 
-    /**
-     * 유저가 참여 중인 게임 조회 (Redis)
-     */
-    public GameState getGameByPlayerId(String playerId) {
-        return gameStateRepository.findByPlayerId(playerId).orElse(null);
+    private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
+        return gameState.findActivePlayer(playerId);
     }
 
-    /**
-     * 해당 방에 이미 진행 중인 게임이 있는지 확인
-     */
-    public boolean hasActiveGame(String roomId) {
+    private boolean hasActiveGame(String roomId) {
         return getActiveGameByRoomId(roomId) != null;
     }
 
-    /**
-     * 해당 방의 진행 중인 게임 상태 조회 (Redis)
-     */
-    public GameState getActiveGameByRoomId(String roomId) {
+    private GameState getActiveGameByRoomId(String roomId) {
         return gameStateRepository.findByRoomId(roomId)
                 .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
                 .orElse(null);
     }
 
-    /*
-     * 특정 플레이어가 투표 시간 연장 사용 가능 여부 조회
-     */
-    public boolean canExtendVotingTime(String playerId) {
-        GameState gameState = getGameByPlayerId(playerId);
-        if (gameState == null)
-            return false;
-        return gameState.canExtendVotingTime(playerId);
-    }
-
-    // 사용되지 않을 수 있으나 호환성 유지
-    public Set<String> getActiveGameIds() {
-        // Redis Keys scan 필요 (추후 구현 or 비권장)
-        return Collections.emptySet();
-    }
-
-    /**
-     * 플레이어가 방을 떠날 수 있는지 확인
-     * (게임 진행 중 살아있는 플레이어는 퇴장 불가)
-     */
-    public boolean canPlayerLeaveRoom(String roomId, String userId) {
-        Game game = getGameByRoomId(roomId);
-        if (game == null)
-            return true;
-
-        GameState gameState = getGameState(game.getGameId());
-        if (gameState == null)
-            return true;
-
-        return gameState.canPlayerLeave(userId);
-    }
-
-    /**
-     * 플레이어가 채팅할 수 있는지 확인
-     */
-    public boolean canPlayerChat(String roomId, String playerId) {
-        Game game = getGameByRoomId(roomId);
-        if (game == null)
-            return true;
-
-        GameState gameState = getGameState(game.getGameId());
-        if (gameState == null)
-            return true;
-
-        return gameState.canPlayerChat(playerId);
-    }
-
-    private List<String> getTopVotedPlayers(Map<String, String> votes) {
-        if (votes == null || votes.isEmpty())
-            return new ArrayList<>();
-        // votes: voterId -> targetId, values()로 targetId 집계
-        Map<String, Long> counts = votes.values().stream()
-                .collect(Collectors.groupingBy(targetId -> targetId, Collectors.counting()));
-        if (counts.isEmpty())
-            return new ArrayList<>();
-        long max = Collections.max(counts.values());
-        return counts.entrySet().stream().filter(e -> e.getValue() == max).map(Map.Entry::getKey).toList();
-    }
-
-    private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
-        return gameState.findActivePlayer(playerId);
-    }
-
     private GamePlayerState findPlayerById(GameState gameState, String playerId) {
         return gameState.findPlayer(playerId);
-    }
-
-    private void findPlayerById(GameState gameState, String playerId,
-            Consumer<GamePlayerState> action) {
-        GamePlayerState p = gameState.findPlayer(playerId);
-        if (p != null)
-            action.accept(p);
     }
 
     // --- Message Sending ---

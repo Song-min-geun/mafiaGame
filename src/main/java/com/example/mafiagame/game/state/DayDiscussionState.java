@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.service.PhaseResultProcessor;
 
 /**
  * 낮 토론 페이즈 상태
@@ -34,6 +35,11 @@ public class DayDiscussionState implements GamePhaseState {
      *
      * @return the duration of the day discussion phase in seconds (60).
      */
+    @Override
+    public void onExit(GameState gameState, PhaseResultProcessor processor) {
+        processor.flushExtendVotingList(gameState);
+    }
+
     @Override
     public int getDurationSeconds() {
         return DURATION_SECONDS;

@@ -10,7 +10,7 @@ import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
-import com.example.mafiagame.game.service.GameService;
+import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.user.domain.Users;
@@ -37,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ChatRoomService {
 
     private final UserService userService;
-    private final GameService gameService;
+    private final GameQueryService gameQueryService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final SuggestionService suggestionService;
     private final GameStateRepository gameStateRepository;
@@ -63,15 +63,15 @@ public class ChatRoomService {
         chatMessage.setSenderName(sender.getNickname());
 
         // 채팅 권한 검사 (GameService에 위임)
-        if (!gameService.canPlayerChat(chatMessage.getRoomId(), senderId)) {
+        if (!gameQueryService.canPlayerChat(chatMessage.getRoomId(), senderId)) {
             sendErrorMessageToUser(senderId, "지금은 채팅을 할 수 없습니다.");
             return;
         }
 
         // 게임 진행 상태 확인
-        Game game = gameService.getGameByRoomId(chatMessage.getRoomId());
+        Game game = gameQueryService.getGameByRoomId(chatMessage.getRoomId());
         if (game != null) {
-            GameState gameState = gameService.getGameState(game.getGameId());
+            GameState gameState = gameQueryService.getGameState(game.getGameId());
             if (gameState != null && gameState.getGamePhase() == GamePhase.NIGHT_ACTION) {
                 // 이미 canPlayerChat에서 마피아 여부는 확인됨 (마피아만 통과)
 
@@ -238,7 +238,7 @@ public class ChatRoomService {
                 return;
 
             // 퇴장 가능 여부 확인 (GameService에 위임)
-            if (!gameService.canPlayerLeaveRoom(request.roomId(), request.userId())) {
+            if (!gameQueryService.canPlayerLeaveRoom(request.roomId(), request.userId())) {
                 log.warn("게임 진행 중 퇴장 시도 차단: userId={}, roomId={}", request.userId(), request.roomId());
                 sendErrorMessageToUser(request.userId(), "게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.");
                 return;
@@ -293,7 +293,7 @@ public class ChatRoomService {
                 .findFirst()
                 .ifPresent(room -> {
                     // 퇴장 가능 여부 GameService에 위임
-                    if (!gameService.canPlayerLeaveRoom(room.getRoomId(), userId)) {
+                    if (!gameQueryService.canPlayerLeaveRoom(room.getRoomId(), userId)) {
                         log.info("게임 진행 중 - 재연결 대기: userId={}, roomId={}", userId, room.getRoomId());
                         return;
                     }

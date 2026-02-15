@@ -5,9 +5,6 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
-import com.example.mafiagame.game.domain.state.GameState;
-import com.example.mafiagame.game.repository.GameStateRepository;
-
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,16 +16,13 @@ public class SchedulerTimerService {
 
     private final TaskScheduler taskScheduler;
     private final GameService gameService;
-    private final GameStateRepository gameStateRepository;
 
     // 게임별 예약된 작업을 관리하는 맵 (GameId -> ScheduledFuture)
     private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
-    public SchedulerTimerService(TaskScheduler taskScheduler, @Lazy GameService gameService,
-            GameStateRepository gameStateRepository) {
+    public SchedulerTimerService(TaskScheduler taskScheduler, @Lazy GameService gameService) {
         this.taskScheduler = taskScheduler;
         this.gameService = gameService;
-        this.gameStateRepository = gameStateRepository;
     }
 
     /**
@@ -60,19 +54,6 @@ public class SchedulerTimerService {
 
         scheduledTasks.put(gameId, future);
         log.info("타이머 예약됨: gameId={}, endTime={}", gameId, executionTime);
-    }
-
-    /**
-     * [Deprecated] 기존 호환용 - Redis에서 phaseEndTime 조회
-     */
-    @Deprecated
-    public void startTimer(String gameId) {
-        GameState gameState = gameStateRepository.findById(gameId).orElse(null);
-        if (gameState == null || gameState.getPhaseEndTime() == null) {
-            log.warn("타이머 시작 실패: 게임이 없거나 종료 시간이 설정되지 않음. gameId={}", gameId);
-            return;
-        }
-        startTimer(gameId, gameState.getPhaseEndTime());
     }
 
     public void startTimer(String gameId, Runnable task, Instant executionTime) {
