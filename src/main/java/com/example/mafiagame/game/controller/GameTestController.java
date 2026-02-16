@@ -36,13 +36,4 @@ public class GameTestController {
         log.info("[테스트] 타이머 시작 요청 (Direct Param): gameId={}, endTime={}", gameId, phaseEndTime);
         timerService.startTimer(gameId, phaseEndTime);
     }
-
-    @PostMapping("/timer/start-legacy")
-    @Operation(summary = "타이머 시작 (Legacy)", description = "[테스트] 타이머를 시작합니다 (Legacy 방식).")
-    public void startTimerLegacy(@RequestBody Map<String, Object> payload) {
-        String gameId = (String) payload.get("gameId");
-
-        log.info("[테스트] 타이머 시작 요청 (Legacy): gameId={}", gameId);
-        timerService.startTimer(gameId);
-    }
 }
