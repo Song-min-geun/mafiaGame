@@ -55,8 +55,13 @@ public class ChatRoomRestController {
             @ApiResponse(responseCode = "200", description = "채팅방 입장 성공"),
             @ApiResponse(responseCode = "404", description = "채팅방 없음")
     })
-    public void joinRoom(@PathVariable String roomId, @RequestBody JoinRoomRequest request) {
-        chatRoomService.userJoin(request);
+    public void joinRoom(@PathVariable String roomId, @RequestBody JoinRoomRequest request,
+            Authentication authentication) {
+        if (!roomId.equals(request.roomId())) {
+            throw new IllegalArgumentException("방 정보가 일치하지 않습니다.");
+        }
+        JoinRoomRequest securedRequest = new JoinRoomRequest(roomId, authentication.getName());
+        chatRoomService.userJoin(securedRequest);
     }
 
     @GetMapping
