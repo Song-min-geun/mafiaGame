@@ -76,6 +76,7 @@ dependencies {
 
     //swagger
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+    implementation 'io.swagger.core.v3:swagger-annotations:2.2.20'
 
     // Spring Retry (Optimistic Lock 재시도용)
     implementation 'org.springframework.retry:spring-retry'
