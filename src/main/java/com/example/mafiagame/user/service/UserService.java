@@ -45,7 +45,12 @@ public class UserService {
             throw new CommonException(ErrorCode.USER_ALREADY_EXISTS);
         }
 
-        Users users = request.toEntity();
+        Users users = Users.builder()
+                .nickname(request.nickname())
+                .userLoginId(request.userLoginId())
+                .userLoginPassword(passwordEncoder.encode(request.userLoginPassword()))
+                .userRole(USER)
+                .build();
         userRepository.save(users);
     }
 
