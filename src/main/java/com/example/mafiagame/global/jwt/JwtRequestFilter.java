@@ -15,9 +15,12 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+
+import java.util.Arrays;
 
 @Component
 @RequiredArgsConstructor
@@ -36,9 +39,20 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         String username = null;
         String jwt = null;
 
-        // "Bearer "로 시작하는 Authorization 헤더가 있는지 확인
+        // 1. Authorization 헤더 확인
         if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
             jwt = authorizationHeader.substring(7);
+        }
+        // 2. 쿠키 확인 (헤더에 없는 경우)
+        else if (request.getCookies() != null) {
+            jwt = Arrays.stream(request.getCookies())
+                    .filter(cookie -> "accessToken".equals(cookie.getName()))
+                    .map(Cookie::getValue)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (jwt != null) {
             try {
                 username = jwtUtil.getUsernameFromToken(jwt);
             } catch (MalformedJwtException e) {
