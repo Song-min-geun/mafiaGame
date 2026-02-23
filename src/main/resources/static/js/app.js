@@ -33,39 +33,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 초기 UI 상태 설정 (로그인 전에는 헤더 정보 숨김)
     hideElement('headerUserInfo');
 
-    // OAuth 로그인 후 토큰 처리
-    const urlParams = new URLSearchParams(window.location.search);
-    const accessToken = urlParams.get('accessToken');
-    const refreshToken = urlParams.get('refreshToken');
-
-    if (accessToken && refreshToken) {
-        console.log('🔑 OAuth 토큰 감지, 저장 중...');
-        // setJwtToken으로 localStorage와 AppState 모두 업데이트
-        const token = 'Bearer ' + accessToken;
-        setJwtToken(token);
-        localStorage.setItem('refreshToken', refreshToken);
-
-        // URL에서 토큰 파라미터 제거 (깔끔한 URL 유지)
-        window.history.replaceState({}, document.title, '/');
-
-        // OAuth 로그인 후 유저 정보 가져오기
-        try {
-            const userData = await api.validateSession();
-            if (userData) {
-                console.log('✅ OAuth 로그인 성공:', userData);
-                hideElement('loginForm');
-                hideElement('registerForm');
-                showElement('gameScreen');
-                showElement('headerUserInfo'); // 로그인 성공 시 표시
-                await ws.connect();
-                await initializeApp();
-                return;
-            }
-        } catch (error) {
-            console.error('OAuth 세션 초기화 실패:', error);
-        }
-    }
-
     // Try to restore session
     if (await authUI.tryRestoreSession()) {
         console.log('✅ 세션 복구 성공');

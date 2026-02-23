@@ -3,6 +3,7 @@ package com.example.mafiagame.global.oauth2;
 import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.jwt.RefreshTokenService;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 
@@ -38,12 +38,23 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         log.info("OAuth2 로그인 성공, JWT 발급: {}", userLoginId);
 
-        // 프론트엔드로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
-        String targetUrl = UriComponentsBuilder.fromUriString("/")
-                .queryParam("accessToken", accessToken)
-                .queryParam("refreshToken", refreshToken)
-                .build().toUriString();
+        // Access Token 쿠키 설정
+        Cookie accessTokenCookie = new Cookie("accessToken", accessToken);
+        accessTokenCookie.setHttpOnly(true);
+        accessTokenCookie.setSecure(false); // 개발 환경에서는 false, 운영 환경에서는 true 권장
+        accessTokenCookie.setPath("/");
+        accessTokenCookie.setMaxAge(3600); // 1시간
+        response.addCookie(accessTokenCookie);
 
-        getRedirectStrategy().sendRedirect(request, response, targetUrl);
+        // Refresh Token 쿠키 설정
+        Cookie refreshTokenCookie = new Cookie("refreshToken", refreshToken);
+        refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(false);
+        refreshTokenCookie.setPath("/");
+        refreshTokenCookie.setMaxAge(7 * 24 * 3600); // 7일
+        response.addCookie(refreshTokenCookie);
+
+        // 프론트엔드로 리다이렉트 (토큰 없이 홈으로)
+        getRedirectStrategy().sendRedirect(request, response, "/");
     }
 }

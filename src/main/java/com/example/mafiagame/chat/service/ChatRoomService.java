@@ -80,7 +80,7 @@ public class ChatRoomService {
 
                 // 생존한 마피아들에게만 개별 전송
                 gameState.getPlayers().stream()
-                        .filter(p -> p.getRole() == PlayerRole.MAFIA || !p.isAlive())
+                        .filter(p -> p.isAlive() && p.getRole() == PlayerRole.MAFIA)
                         .forEach(mafia -> messageBroadcaster.sendPrivateMessage(mafia.getPlayerId(), chatMessage));
                 return;
             }

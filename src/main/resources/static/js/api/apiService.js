@@ -17,7 +17,11 @@ async function apiRequest(url, options = {}) {
         headers['Authorization'] = token;
     }
 
-    return fetch(url, { ...options, headers });
+    return fetch(url, { 
+        ...options, 
+        headers,
+        credentials: 'same-origin'
+    });
 }
 
 /**
