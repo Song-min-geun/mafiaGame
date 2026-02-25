@@ -13,6 +13,8 @@ import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.global.error.CommonException;
+import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
@@ -178,8 +180,13 @@ public class ChatRoomService {
         chatRoomRedisTemplate.opsForValue().set(ROOM_KEY_PREFIX + room.getRoomId(), room);
 
         // RedisService를 통한 유저 세션 관리 강화 (옵션)
-        redisService.saveUserSession(hostId, room.getRoomId(), null);
-
+        try {
+            redisService.saveUserSession(hostId, room.getRoomId(), null);
+        } catch (Exception e) {
+            chatRoomRedisTemplate.delete(ROOM_KEY_PREFIX + room.getRoomId());
+            log.error("채팅방 생성 중 세션 저장 실패. 롤백 수행 (방 삭제): roomId={}", room.getRoomId(), e);
+            throw new CommonException(ErrorCode.CHAT_ROOM_CREATE_FAILED);
+        }
         return room;
     }
 
