@@ -8,8 +8,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import com.example.mafiagame.global.error.CommonException;
-import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.user.domain.UserRole;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.repository.UsersRepository;
@@ -26,7 +24,7 @@ public class MyUserDetailsService implements UserDetailsService {
     @Cacheable(value = "userDetails", key = "#userLoginId", unless = "#result == null")
     public UserDetails loadUserByUsername(String userLoginId) throws UsernameNotFoundException {
         Users users = usersRepository.findByUserLoginId(userLoginId)
-                .orElseThrow(() -> new CommonException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new UsernameNotFoundException("유저를 찾을 수 없습니다: " + userLoginId));
 
         UserRole role = users.getUserRole();
 
