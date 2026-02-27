@@ -13,6 +13,9 @@ import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.global.error.CommonException;
+import com.example.mafiagame.global.error.ErrorCode;
+import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +47,7 @@ public class ChatRoomService {
     private final StringRedisTemplate stringRedisTemplate;
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
     private final RedissonClient redissonClient;
+    private final RedisService redisService;
 
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
     private static final String ROOM_KEY_PREFIX = "chatroom:";
@@ -111,7 +115,7 @@ public class ChatRoomService {
     /**
      * 버퍼의 채팅 로그를 Redis에 일괄 저장하고 AI 추천 갱신 트리거
      */
-    private synchronized void flushChatLogBuffer(String roomId) {
+    private void flushChatLogBuffer(String roomId) {
         List<String> buffer = chatLogBuffer.remove(roomId);
         messageCounters.remove(roomId);
 
@@ -174,6 +178,15 @@ public class ChatRoomService {
 
         room.addParticipant(request.toHostParticipant(host));
         chatRoomRedisTemplate.opsForValue().set(ROOM_KEY_PREFIX + room.getRoomId(), room);
+
+        // RedisService를 통한 유저 세션 관리 강화 (옵션)
+        try {
+            redisService.saveUserSession(hostId, room.getRoomId(), null);
+        } catch (Exception e) {
+            chatRoomRedisTemplate.delete(ROOM_KEY_PREFIX + room.getRoomId());
+            log.error("채팅방 생성 중 세션 저장 실패. 롤백 수행 (방 삭제): roomId={}", room.getRoomId(), e);
+            throw new CommonException(ErrorCode.CHAT_ROOM_CREATE_FAILED);
+        }
         return room;
     }
 
@@ -198,6 +211,9 @@ public class ChatRoomService {
             room.addParticipant(request.toParticipant(user));
 
             saveRoom(room);
+
+            // 유저 세션 정보 업데이트
+            redisService.saveUserSession(request.userId(), request.roomId(), null);
 
             String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
             ChatMessage joinMessage = ChatMessage.userJoined(room, content);
@@ -248,6 +264,9 @@ public class ChatRoomService {
             if (leftUserName == null)
                 return; // 방에 없는 유저가 나가는 경우
 
+            // 유저 세션 정보 삭제
+            redisService.deleteUserSession(request.userId());
+
             if (room.getParticipants().isEmpty()) {
                 // 아무도 없으면 방 삭제
                 deleteRoom(request.roomId());
@@ -282,24 +301,22 @@ public class ChatRoomService {
     }
 
     public void handleDisconnect(String userId) {
-        Set<String> keys = chatRoomRedisTemplate.keys(ROOM_KEY_PREFIX + "*");
-        if (keys == null)
+        // 효율적인 세션 기반 조회로 변경 (keys 전수 조사 제거)
+        String roomId = redisService.getUserRoomId(userId);
+        if (roomId == null)
             return;
 
-        keys.stream()
-                .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
-                .filter(Objects::nonNull)
-                .filter(room -> room.isParticipant(userId))
-                .findFirst()
-                .ifPresent(room -> {
-                    // 퇴장 가능 여부 GameService에 위임
-                    if (!gameQueryService.canPlayerLeaveRoom(room.getRoomId(), userId)) {
-                        log.info("게임 진행 중 - 재연결 대기: userId={}, roomId={}", userId, room.getRoomId());
-                        return;
-                    }
-                    log.info("연결 해제 - 퇴장 처리: userId={}, roomId={}", userId, room.getRoomId());
-                    userLeave(LeaveRoomRequest.of(room.getRoomId(), userId));
-                });
+        ChatRoom room = getRoom(roomId);
+        if (room == null)
+            return;
+
+        // 퇴장 가능 여부 GameService에 위임
+        if (!gameQueryService.canPlayerLeaveRoom(roomId, userId)) {
+            log.info("게임 진행 중 - 재연결 대기: userId={}, roomId={}", userId, roomId);
+            return;
+        }
+        log.info("연결 해제 - 퇴장 처리: userId={}, roomId={}", userId, roomId);
+        userLeave(LeaveRoomRequest.of(roomId, userId));
     }
 
     public ChatRoom getRoom(String roomId) {
@@ -307,12 +324,9 @@ public class ChatRoomService {
     }
 
     public List<ChatRoom> getAllRooms() {
-        Set<String> keys = chatRoomRedisTemplate.keys(ROOM_KEY_PREFIX + "*");
-        if (keys == null)
-            return List.of();
-
-        return keys.stream()
-                .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
+        Set<String> roomIds = redisService.getAllRoomIds();
+        return roomIds.stream()
+                .map(this::getRoom)
                 .filter(Objects::nonNull)
                 .toList();
     }
@@ -321,16 +335,9 @@ public class ChatRoomService {
      * 유저가 현재 참여 중인 ChatRoom 조회
      */
     public ChatRoom findRoomByUserId(String userId) {
-        Set<String> keys = chatRoomRedisTemplate.keys(ROOM_KEY_PREFIX + "*");
-        if (keys == null)
-            return null;
-
-        return keys.stream()
-                .map(key -> chatRoomRedisTemplate.opsForValue().get(key))
-                .filter(Objects::nonNull)
-                .filter(room -> room.isParticipant(userId))
-                .findFirst()
-                .orElse(null);
+        // 효율적인 세션 기반 조회로 변경
+        String roomId = redisService.getUserRoomId(userId);
+        return roomId != null ? getRoom(roomId) : null;
     }
 
     // ================== 헬퍼 메소드 ================== //
