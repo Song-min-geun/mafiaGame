@@ -8,12 +8,13 @@ import com.example.mafiagame.global.client.GeminiApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 채팅 추천 문구 서비스
@@ -33,6 +34,13 @@ public class SuggestionService {
     private static final String SUGGESTION_PREFIX = "suggestion:role:";
     private static final String GAME_SUGGESTION_PREFIX = "suggestion:game:";
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
+    private static final long AI_SUGGESTION_TTL_SECONDS = 60;
+    private static final DefaultRedisScript<Long> REPLACE_LIST_WITH_TTL_SCRIPT = new DefaultRedisScript<>(
+            "redis.call('DEL', KEYS[1]); " +
+                    "for i = 1, #ARGV - 1 do redis.call('RPUSH', KEYS[1], ARGV[i]); end " +
+                    "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[#ARGV])); " +
+                    "return #ARGV - 1",
+            Long.class);
 
     /**
      * 역할별/페이즈별 기본 추천 문구 초기화 (서버 시작 시 1회 호출)
@@ -162,29 +170,29 @@ public class SuggestionService {
             String response = geminiApiClient.generateContent(prompt);
 
             if (response != null && !response.isBlank()) {
-                String[] suggestions = response.split("\\|\\|\\|");
+                List<String> cleanedSuggestions = new ArrayList<>();
+                for (String s : response.split("\\|\\|\\|")) {
+                    if (s != null && !s.isBlank()) {
+                        cleanedSuggestions.add(s.trim());
+                    }
+                }
 
                 String key = buildGameSuggestionKey(gameId, role, phase);
-                stringRedisTemplate.delete(key); // 기존 키 삭제
+                if (key == null) {
+                    log.error("AI 추천 키 생성 실패 (null): gameId={}, role={}, phase={}", gameId, role, phase);
+                    return;
+                }
+                if (cleanedSuggestions.isEmpty()) {
+                    log.warn("AI 추천 결과가 비어있음: gameId={}, role={}", gameId, role);
+                    stringRedisTemplate.delete(key);
+                    return;
+                }
 
-                for (String s : suggestions) {
-                    if (key == null) {
-                        log.error("AI 추천 키 생성 실패 (null): gameId={}, role={}, phase={}", gameId, role, phase);
-                        continue;
-                    }
-                    if (!s.isBlank()) {
-                        stringRedisTemplate.opsForList().rightPush(key, s.trim());
-                    }
-                }
-                try {
-                    stringRedisTemplate.expire(key, 1, TimeUnit.MINUTES);
-                } catch (Exception e) {
-                    log.error("Redis 만료 시간 설정 실패(데이터는 저장됨): key={}", key, e);
-                }
-                log.info("AI 추천 생성 성공 및 Redis 저장: key={}, count={}", key, suggestions.length);
+                cacheSuggestionsAtomically(key, cleanedSuggestions);
+                log.info("AI 추천 생성 성공 및 Redis 저장: key={}, count={}", key, cleanedSuggestions.size());
 
                 // WebSocket 알림 전송 (해당 역할을 가진 플레이어들에게만)
-                notifyPlayers(gameId, role, suggestions);
+                notifyPlayers(gameId, role, cleanedSuggestions.toArray(new String[0]));
             } else {
                 log.warn("AI 응답이 비어있음: gameId={}, role={}", gameId, role);
             }
@@ -212,6 +220,19 @@ public class SuggestionService {
                 }
             }
         });
+    }
+
+    private void cacheSuggestionsAtomically(String key, List<String> suggestions) {
+        List<Object> args = new ArrayList<>(suggestions);
+        args.add(String.valueOf(AI_SUGGESTION_TTL_SECONDS));
+        try {
+            stringRedisTemplate.execute(
+                    REPLACE_LIST_WITH_TTL_SCRIPT,
+                    List.of(key),
+                    args.toArray());
+        } catch (Exception e) {
+            log.error("AI 추천 Redis 저장 실패: key={}", key, e);
+        }
     }
 
     private String buildGlobalSuggestionKey(PlayerRole role, GamePhase phase) {

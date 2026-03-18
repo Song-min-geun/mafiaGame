@@ -37,11 +37,10 @@ out/
 .vscode/
 .DS_Store
 .env
-src/main/resources/application.properties
-src/test/resources/application-test.properties
 
 ### ngrinder-scripts ###
 /ngrinder-scripts
 
-### local logs ###
-/logs/
+### Logs ###
+/logs/*
+/logs

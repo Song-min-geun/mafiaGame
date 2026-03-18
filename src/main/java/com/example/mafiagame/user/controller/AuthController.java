@@ -1,9 +1,13 @@
 package com.example.mafiagame.user.controller;
 
+import com.example.mafiagame.global.dto.CommonResponse;
+import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.jwt.RefreshTokenService;
 import com.example.mafiagame.user.dto.request.RefreshTokenRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +16,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
 
     private final JwtUtil jwtUtil;
@@ -21,52 +26,46 @@ public class AuthController {
      * Refresh Token으로 새로운 Access Token 발급
      */
     @PostMapping("/refresh")
-    public ResponseEntity<?> refreshToken(@RequestBody RefreshTokenRequest request) {
-        try {
-            String refreshToken = request.refreshToken();
+    public ResponseEntity<CommonResponse<Map<String, String>>> refreshToken(
+            @Valid @RequestBody RefreshTokenRequest request) {
+        String refreshToken = request.refreshToken();
 
-            // Refresh Token에서 username 추출
-            String username = jwtUtil.getUsernameFromToken(refreshToken);
-
-            // Redis에 저장된 토큰과 비교
-            if (!refreshTokenService.validateRefreshToken(username, refreshToken)) {
-                return ResponseEntity.status(401).body(Map.of(
-                        "success", false,
-                        "message", "유효하지 않은 Refresh Token입니다."));
-            }
-
-            // 새 Access Token 발급
-            String newAccessToken = jwtUtil.generateAccessToken(username);
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "data", Map.of("accessToken", newAccessToken),
-                    "message", "토큰이 갱신되었습니다."));
-
-        } catch (Exception e) {
-            return ResponseEntity.status(401).body(Map.of(
-                    "success", false,
-                    "message", "토큰 갱신에 실패했습니다: " + e.getMessage()));
+        if (!jwtUtil.validateToken(refreshToken)) {
+            throw ErrorCode.INVALID_REFRESH_TOKEN.commonException();
         }
+
+        String tokenType = jwtUtil.getClaimFromToken(refreshToken, claims -> claims.get("type", String.class));
+        if (!"refresh".equals(tokenType)) {
+            throw ErrorCode.INVALID_REFRESH_TOKEN.commonException();
+        }
+
+        String username = jwtUtil.getUsernameFromToken(refreshToken);
+
+        if (!refreshTokenService.validateRefreshToken(username, refreshToken)) {
+            throw ErrorCode.INVALID_REFRESH_TOKEN.commonException();
+        }
+
+        String newAccessToken = jwtUtil.generateAccessToken(username);
+        return ResponseEntity.ok(CommonResponse.success(Map.of("accessToken", newAccessToken), "토큰이 갱신되었습니다."));
     }
 
     /**
      * 로그아웃 (Refresh Token 삭제)
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader("Authorization") String authHeader) {
-        try {
+    public ResponseEntity<CommonResponse<Void>> logout(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            String username = jwtUtil.getUsernameFromToken(token);
-            refreshTokenService.deleteRefreshToken(username);
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "로그아웃되었습니다."));
-        } catch (Exception e) {
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "로그아웃되었습니다."));
+            try {
+                String username = jwtUtil.getUsernameFromToken(token);
+                refreshTokenService.deleteRefreshToken(username);
+            } catch (Exception e) {
+                log.debug("Logout token parsing failed", e);
+            }
         }
+
+        // 로그아웃은 멱등성을 보장 (토큰이 없거나 만료되어도 OK)
+        return ResponseEntity.ok(CommonResponse.success(null, "로그아웃되었습니다."));
     }
 }
