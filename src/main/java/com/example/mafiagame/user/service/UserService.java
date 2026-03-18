@@ -45,7 +45,12 @@ public class UserService {
             throw new CommonException(ErrorCode.USER_ALREADY_EXISTS);
         }
 
-        Users users = request.toEntity();
+        Users users = Users.builder()
+                .nickname(request.nickname())
+                .userLoginId(request.userLoginId())
+                .userLoginPassword(passwordEncoder.encode(request.userLoginPassword()))
+                .userRole(USER)
+                .build();
         userRepository.save(users);
     }
 
@@ -56,7 +61,7 @@ public class UserService {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.userLoginId(), request.userLoginPassword()));
         } catch (BadCredentialsException e) {
-            throw new RuntimeException("아이디 또는 비밀번호가 일치하지 않습니다.");
+            throw ErrorCode.USER_LOGIN_FAILED.commonException();
         }
 
         String accessToken = jwtUtil.generateAccessToken(request.userLoginId());
@@ -72,7 +77,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserDetailForUser getUserDetailForUser(Long userId) {
         Users users = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("해당 ID의 사용자를 찾을 수 없습니다: " + userId));
+                .orElseThrow(ErrorCode.USER_NOT_FOUND::commonException);
         return new UserDetailForUser(users.getNickname());
     }
 
@@ -80,7 +85,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserDetailForAdmin getUserDetailForAdmin(Long userId) {
         Users users = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("해당 ID의 사용자를 찾을 수 없습니다: " + userId));
+                .orElseThrow(ErrorCode.USER_NOT_FOUND::commonException);
         return new UserDetailForAdmin(users);
     }
 
@@ -88,7 +93,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public Users getUserByLoginId(String userLoginId) {
         return userRepository.findByUserLoginId(userLoginId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + userLoginId));
+                .orElseThrow(ErrorCode.USER_NOT_FOUND::commonException);
     }
 
     @Transactional
@@ -97,7 +102,7 @@ public class UserService {
         Users users = getUserByLoginId(userLoginId);
 
         if (!passwordEncoder.matches(currentPassword, users.getUserLoginPassword())) {
-            throw new RuntimeException("현재 비밀번호가 일치하지 않습니다.");
+            throw ErrorCode.PASSWORD_MISMATCH.commonException();
         }
 
         String encodedNewPassword = passwordEncoder.encode(newPassword);
