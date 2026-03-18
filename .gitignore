@@ -40,3 +40,7 @@ out/
 
 ### ngrinder-scripts ###
 /ngrinder-scripts
+
+### Logs ###
+/logs/*
+/logs
