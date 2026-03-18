@@ -1,0 +1,47 @@
+{
+  "family": "mafiagame",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/mafiagameTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "mafiagame",
+      "image": "REPLACED_BY_CI",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8080, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "SPRING_PROFILES_ACTIVE", "value": "prod" },
+        { "name": "SPRING_DATASOURCE_URL", "value": "jdbc:mysql://<RDS_ENDPOINT>:3306/mafiaGame" },
+        { "name": "SPRING_DATASOURCE_USERNAME", "value": "<DB_USERNAME>" },
+        { "name": "SPRING_DATA_REDIS_HOST", "value": "<REDIS_ENDPOINT>" },
+        { "name": "SPRING_DATA_REDIS_PORT", "value": "6379" }
+      ],
+      "secrets": [
+        { "name": "SPRING_DATASOURCE_PASSWORD", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/db_password" },
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/jwt_secret" },
+        { "name": "GEMINI_API_KEY", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/gemini_api_key" },
+        { "name": "GOOGLE_CLIENT_ID", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/google_client_id" },
+        { "name": "GOOGLE_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/google_client_secret" },
+        { "name": "GITHUB_CLIENT_ID", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/github_client_id" },
+        { "name": "GITHUB_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/github_client_secret" },
+        { "name": "NAVER_CLIENT_ID", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/naver_client_id" },
+        { "name": "NAVER_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/naver_client_secret" },
+        { "name": "KAKAO_CLIENT_ID", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/kakao_client_id" },
+        { "name": "KAKAO_CLIENT_SECRET", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/oauth/kakao_client_secret" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/mafiagame",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
