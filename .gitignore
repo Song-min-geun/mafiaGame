@@ -42,3 +42,6 @@ src/test/resources/application-test.properties
 
 ### ngrinder-scripts ###
 /ngrinder-scripts
+
+### local logs ###
+/logs/
