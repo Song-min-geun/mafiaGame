@@ -39,4 +39,12 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
             "u.winRate = (u.winCount + CASE WHEN :isWin = true THEN 1.0 ELSE 0.0 END) / (u.playCount + 1.0) " +
             "WHERE u.userLoginId = :playerId")
     int updateStats(@Param("playerId") String playerId, @Param("isWin") boolean isWin);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Users u SET " +
+            "u.playCount = u.playCount + 1, " +
+            "u.winCount = u.winCount + CASE WHEN :isWin = true THEN 1 ELSE 0 END, " +
+            "u.winRate = (u.winCount + CASE WHEN :isWin = true THEN 1.0 ELSE 0.0 END) / (u.playCount + 1.0) " +
+            "WHERE u.userLoginId IN :playerIds")
+    int updateStatsBatch(@Param("playerIds") List<String> playerIds, @Param("isWin") boolean isWin);
 }

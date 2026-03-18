@@ -147,12 +147,13 @@ export function checkPasswordMatch() {
  * Try to restore session from storage
  */
 export async function tryRestoreSession() {
-    // Try to initialize from storage if possible
-    initFromStorage();
+    if (!initFromStorage()) {
+        return false;
+    }
 
     try {
-        const userData = await api.validateSession();
-        if (userData) {
+        const valid = await api.validateSession();
+        if (valid) {
             hideElement('loginForm');
             hideElement('registerForm');
             showElement('gameScreen');

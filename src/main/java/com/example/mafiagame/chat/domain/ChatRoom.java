@@ -44,19 +44,26 @@ public class ChatRoom implements Serializable {
     }
 
     /**
-     * 채팅방에 새로운 참가자를 추가합니다. 중복 참여는 방지됩니다.
+     * 채팅방에 새로운 참가자를 추가합니다. 중복 참여 및 정원 초과를 방지합니다.
+     * @return 참가 성공 여부 (false: 중복 참여 또는 정원 초과)
      */
-    public void addParticipant(ChatUser participant) {
+    public boolean addParticipant(ChatUser participant) {
         if (this.participants == null) {
             this.participants = new ArrayList<>();
         }
 
         // 중복 참여 방지
         if (isParticipant(participant.getUserId())) {
-            return;
+            return false;
+        }
+
+        // 정원 초과 방지
+        if (this.participants.size() >= this.maxPlayers) {
+            return false;
         }
 
         this.participants.add(participant);
+        return true;
     }
 
     /**

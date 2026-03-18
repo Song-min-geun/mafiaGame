@@ -4,17 +4,23 @@
 
 ## 🎮 게임 특징
 
-- **실시간 채팅**: WebSocket을 통한 실시간 채팅 기능
-- **역할 기반 게임**: 마피아, 의사, 경찰, 시민 등 다양한 역할
-- **방 시스템**: 여러 채팅룸에서 동시에 게임 진행 가능
-- **사용자 관리**: 회원가입, 로그인, 사용자 정보 관리
+- **실시간 채팅**: WebSocket + STOMP 기반 멀티룸 실시간 채팅
+- **역할 기반 게임**: 마피아/의사/경찰/시민 역할과 단계별 진행
+- **게임 상태 복구**: Redis 기반 게임 상태 저장 및 재접속 복구 지원
+- **AI 추천 문구**: Gemini API 기반 역할/페이즈별 채팅 추천 제공
+- **보안/인증**: JWT + OAuth2, BCrypt 비밀번호 해싱
+- **동시성 제어**: Redisson 분산 락으로 입장/퇴장 정합성 보장
 
 ## 🚀 기술 스택
 
-- **Backend**: Spring Boot 3.5.4, Java 17
-- **Database**: H2 Database (인메모리)
-- **WebSocket**: Spring WebSocket, STOMP
+- **Backend**: Spring Boot 3.5.4, Java 21 (빌드 기준)
+- **Database**: MySQL (기본), H2 (테스트용 선택)
+- **Cache/State**: Redis, Redisson
+- **WebSocket**: Spring WebSocket, STOMP, SockJS
+- **Security**: Spring Security, JWT, OAuth2
+- **AI**: Gemini API (채팅 추천)
 - **Frontend**: HTML5, CSS3, JavaScript
+- **API Docs**: Springdoc OpenAPI (Swagger UI)
 - **Build Tool**: Gradle
 
 ## 📋 게임 규칙
@@ -33,8 +39,16 @@
 ## 🛠️ 설치 및 실행
 
 ### 1. 사전 요구사항
-- Java 17 이상
+- Java 21 이상
+- MySQL, Redis
 - Gradle (프로젝트에 포함됨)
+
+### 1-1. 환경 설정
+- `src/main/resources/application-example.properties`를 참고해 `application.properties` 생성
+- DB/Redis/JWT 기본 값은 로컬 개발용이며, 실제 값은 환경 변수로 주입 권장
+- 권장 환경 변수: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `JWT_SECRET`, `JWT_ACCESS_EXPIRATION`, `JWT_REFRESH_EXPIRATION`, `GEMINI_API_KEY`
+- OAuth2 사용 시 환경 변수 설정: `GOOGLE_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET`, `NAVER_CLIENT_ID/SECRET`, `KAKAO_CLIENT_ID/SECRET`
+- AI 추천 사용 시 `gemini.api-key` 설정
 
 ### 2. 프로젝트 클론
 ```bash
@@ -73,40 +87,60 @@ http://localhost:8080
 
 ## 🔧 API 엔드포인트
 
-### 사용자 관리
+### 사용자/인증
 - `POST /api/users/register` - 회원가입
 - `POST /api/users/login` - 로그인
+- `GET /api/users/me` - 현재 사용자 정보
 - `GET /api/users/{userId}` - 사용자 정보 조회
-- `PUT /api/users/{userId}/password` - 비밀번호 변경
+- `PUT /api/users/password` - 비밀번호 변경
+- `GET /api/users/session` - 사용자 세션 조회
+- `GET /api/users/ranking` - Top 10 랭킹
+- `POST /api/auth/refresh` - Access Token 재발급
+- `POST /api/auth/logout` - 로그아웃
 
-### 채팅룸 관리
+### 채팅룸
 - `POST /api/chat/rooms` - 새 방 생성
 - `GET /api/chat/rooms` - 방 목록 조회
 - `GET /api/chat/rooms/{roomId}` - 방 정보 조회
+- `GET /api/chat/rooms/search?keyword=...` - 방 검색
 - `POST /api/chat/rooms/{roomId}/join` - 방 입장
-- `POST /api/chat/rooms/{roomId}/leave` - 방 퇴장
-- `POST /api/chat/rooms/{roomId}/start-game` - 게임 시작
-- `POST /api/chat/rooms/{roomId}/end-game` - 게임 종료
+
+### 게임
+- `POST /api/games/create` - 게임 생성
+- `GET /api/games/{gameId}/status` - 게임 상태 조회
+- `GET /api/games/state/{roomId}` - 방 기준 게임 상태 복구
+- `GET /api/games/my-game` - 내 게임 조회
+- `POST /api/games/update-time` - 게임 시간 조절
+- `GET /api/games/suggestions?role=...&phase=...&gameId=...` - 채팅 추천 조회
 
 ### WebSocket 메시지
 - `/app/chat.sendMessage` - 채팅 메시지 전송
+- `/app/chat.sendPrivateMessage` - 개인 메시지 전송
 - `/app/room.join` - 방 입장
 - `/app/room.leave` - 방 퇴장
-- `/app/game.start` - 게임 시작
 - `/app/game.vote` - 투표
-- `/app/game.nextPhase` - 다음 단계로 진행
+- `/app/game.finalVote` - 최종 투표
+- `/app/game.nightAction` - 밤 행동
+
+## 📚 API 문서
+
+- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
 
 ## 🗄️ 데이터베이스
 
-### H2 콘솔 접속
-```
-http://localhost:8080/h2-console
-```
+### 기본 DB (MySQL)
+- URL: `DB_URL` (기본값: `jdbc:mysql://localhost:3306/mafiaGame`)
+- Username: `DB_USERNAME` (기본값: `root`)
+- Password: `DB_PASSWORD` (기본값: 빈 값)
 
-### 데이터베이스 설정
-- URL: `jdbc:h2:mem:testdb`
-- Username: `sa`
-- Password: (비어있음)
+### H2 (테스트용 선택)
+`application.properties`에서 H2 설정 주석을 해제하면 사용 가능
+
+## 🧠 Redis 사용처
+
+- 채팅방/게임 상태 캐시
+- 채팅 로그 저장 (AI 추천 입력)
+- Refresh Token 저장
 
 ## 📁 프로젝트 구조
 
@@ -114,6 +148,7 @@ http://localhost:8080/h2-console
 src/main/java/com/example/mafiagame/
 ├── config/                 # 설정 클래스
 │   └── WebSocketConfig.java
+├── global/                 # 공통 설정/보안/JWT/OAuth/Redis
 ├── chat/                   # 채팅 관련
 │   ├── controller/         # WebSocket 및 REST 컨트롤러
 │   ├── domain/            # 도메인 모델
@@ -143,20 +178,24 @@ src/main/java/com/example/mafiagame/
 - 단계별 게임 진행
 - 투표 시스템
 - 승리 조건 확인
+- 게임 상태 복구 지원
 
 ### 사용자 관리
 - 회원가입/로그인
 - 사용자 정보 관리
 - 방 참가/퇴장 관리
 
-## 🔒 보안 고려사항
+### AI 추천 문구
+- 최근 채팅 로그 기반 추천 생성
+- 역할/페이즈별 문구 제공
 
-현재 버전은 개발용으로 구현되어 있습니다. 프로덕션 환경에서는 다음 사항을 고려해야 합니다:
+## 🔒 보안 구성
 
-- 비밀번호 암호화 (BCrypt 등)
-- JWT 토큰 기반 인증
-- HTTPS 적용
-- 입력값 검증 및 XSS 방지
+- 비밀번호 BCrypt 해싱
+- JWT Access/Refresh Token (Refresh Token은 Redis 저장)
+- OAuth2 로그인 (Google/GitHub/Naver/Kakao)
+
+프로덕션 환경에서는 HTTPS, 보안 키 관리, CORS/Rate Limit 정책을 추가로 고려해야 합니다.
 
 ## 에러 사항과 해결 방법
 
@@ -175,12 +214,10 @@ src/main/java/com/example/mafiagame/
 
 ## 🚧 향후 개선 계획
 
-- [ ] 중앙 집중형 방 정보 업데이트
-- [ ] 게임 타이머 기능
-- [ ] 게임 히스토리 저장
-- [ ] 더 많은 역할 추가
-- [ ] 모바일 반응형 UI
-- [ ] 게임 통계 및 랭킹 시스템
+- [ ] 더 많은 역할 추가 및 밸런싱
+- [ ] 모바일 반응형 UI 개선
+- [ ] 게임 통계 상세/리플레이 UI
+- [ ] 관측성 대시보드(메트릭/로그) 정비
 - [ ] 음성 채팅 기능
 
 ## 📞 문의 및 지원

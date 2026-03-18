@@ -43,7 +43,11 @@ public class StompHandler implements ChannelInterceptor {
             try {
                 String authHeader = accessor.getFirstNativeHeader("Authorization");
                 if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                    String token = authHeader.substring(7);
+                    String token = authHeader.substring(7).trim();
+                    if (!StringUtils.hasText(token) || "null".equalsIgnoreCase(token)
+                            || "undefined".equalsIgnoreCase(token)) {
+                        return message;
+                    }
                     String username = jwtUtil.getUsernameFromToken(token);
                     if (StringUtils.hasText(username)) {
                         UserDetails userDetails = userDetailsService.loadUserByUsername(username);

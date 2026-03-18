@@ -7,7 +7,6 @@ import com.example.mafiagame.game.domain.state.PlayerRole;
 
 import com.example.mafiagame.game.dto.response.CreateGameResponse;
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.chat.domain.ChatRoom;
 import com.example.mafiagame.chat.service.ChatRoomService;
@@ -44,7 +43,6 @@ import java.util.Map;
 public class GameController {
 
     private final GameService gameService;
-    private final GameQueryService gameQueryService;
     private final SuggestionService suggestionService;
     private final ChatRoomService chatRoomService;
 
@@ -148,13 +146,14 @@ public class GameController {
             @ApiResponse(responseCode = "400", description = "게임 상태 조회 실패")
     })
     public ResponseEntity<?> getGameStatus(@PathVariable String gameId) {
-        GameState gameState = gameQueryService.getGameState(gameId);
+        // 1. 진행 중인 게임이면 Redis에서 상태 조회
+        GameState gameState = gameService.getGameState(gameId);
         if (gameState != null) {
             return ResponseEntity.ok(Map.of("success", true, "game", gameState));
         }
 
         // 2. 종료된 게임이면 DB에서 이력 조회
-        Game game = gameQueryService.getGame(gameId);
+        Game game = gameService.getGame(gameId);
         return ResponseEntity.ok(Map.of("success", true, "game", game));
     }
 
@@ -189,12 +188,12 @@ public class GameController {
             @ApiResponse(responseCode = "400", description = "게임 상태 조회 실패")
     })
     public ResponseEntity<?> getGameStateByRoom(@PathVariable String roomId) {
-        Game game = gameQueryService.getGameByRoomId(roomId);
+        Game game = gameService.getGameByRoomId(roomId);
         if (game == null) {
             return ResponseEntity.ok(Map.of("success", false, "message", "진행 중인 게임이 없습니다."));
         }
 
-        GameState gameState = gameQueryService.getGameState(game.getGameId());
+        GameState gameState = gameService.getGameState(game.getGameId());
         if (gameState != null) {
             return ResponseEntity.ok(Map.of("success", true, "data", gameState));
         }
@@ -219,7 +218,7 @@ public class GameController {
         }
 
         String userId = principal.getName();
-        GameState gameState = gameQueryService.getGameByPlayerId(userId);
+        GameState gameState = gameService.getGameByPlayerId(userId);
 
         if (gameState != null) {
             return ResponseEntity.ok(Map.of(

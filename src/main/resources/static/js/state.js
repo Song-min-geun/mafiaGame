@@ -71,9 +71,10 @@ export function setCurrentUser(user) {
 }
 
 export function setJwtToken(token) {
-    AppState.jwtToken = token;
-    if (token) {
-        localStorage.setItem('jwtToken', token);
+    const normalizedToken = normalizeToken(token);
+    AppState.jwtToken = normalizedToken;
+    if (normalizedToken) {
+        localStorage.setItem('jwtToken', normalizedToken);
     } else {
         localStorage.removeItem('jwtToken');
     }
@@ -199,8 +200,10 @@ export function initFromStorage() {
     const storedToken = localStorage.getItem('jwtToken');
     const storedUser = localStorage.getItem('currentUser');
 
-    if (storedToken && storedUser) {
-        AppState.jwtToken = storedToken;
+    const normalizedToken = normalizeToken(storedToken);
+
+    if (normalizedToken && storedUser) {
+        AppState.jwtToken = normalizedToken;
         try {
             AppState.currentUser = JSON.parse(storedUser);
 
@@ -229,3 +232,7 @@ export function initFromStorage() {
     return false;
 }
 
+function normalizeToken(token) {
+    if (!token) return null;
+    return token.startsWith('Bearer ') ? token.slice(7) : token;
+}
