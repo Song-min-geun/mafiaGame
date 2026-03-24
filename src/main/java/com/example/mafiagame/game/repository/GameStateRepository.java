@@ -7,8 +7,13 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GameStatus;
+import com.example.mafiagame.game.timer.GameTimerMeta;
+
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.HashSet;
@@ -24,6 +29,7 @@ public class GameStateRepository {
     // Redis Key Prefix
     private static final String KEY_PREFIX = "game:state:";
     private static final String META_KEY_PREFIX = "game:meta:";
+    private static final String TIMER_TOKEN_FIELD = "timerToken";
     // TTL
     private static final Duration TTL = Duration.ofMinutes(30);
 
@@ -59,6 +65,43 @@ public class GameStateRepository {
         String key = KEY_PREFIX + gameId;
         redisTemplate.delete(key);
         stringRedisTemplate.delete(META_KEY_PREFIX + gameId);
+    }
+
+    public void saveTimerToken(String gameId, String timerToken) {
+        String metaKey = META_KEY_PREFIX + gameId;
+        stringRedisTemplate.opsForHash().put(metaKey, TIMER_TOKEN_FIELD, timerToken);
+        stringRedisTemplate.expire(metaKey, TTL);
+    }
+
+    public void clearTimerToken(String gameId) {
+        String metaKey = META_KEY_PREFIX + gameId;
+        stringRedisTemplate.opsForHash().delete(metaKey, TIMER_TOKEN_FIELD);
+        stringRedisTemplate.expire(metaKey, TTL);
+    }
+
+    public Optional<GameTimerMeta> findMeta(String gameId) {
+        String metaKey = META_KEY_PREFIX + gameId;
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(metaKey);
+        if (entries.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Object phase = entries.get("phase");
+        Object currentPhase = entries.get("currentPhase");
+        Object status = entries.get("status");
+        if (phase == null || currentPhase == null || status == null) {
+            return Optional.empty();
+        }
+
+        Object phaseEndTime = entries.get("phaseEndTime");
+        Object timerToken = entries.get(TIMER_TOKEN_FIELD);
+
+        return Optional.of(new GameTimerMeta(
+                GamePhase.valueOf(phase.toString()),
+                Integer.parseInt(currentPhase.toString()),
+                GameStatus.valueOf(status.toString()),
+                phaseEndTime != null ? Long.parseLong(phaseEndTime.toString()) : null,
+                timerToken != null ? timerToken.toString() : null));
     }
 
     /**
