@@ -17,6 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,6 +64,33 @@ class GameFlowAcceptanceTest extends RedisTestContainerSupport {
         Map<String, Object> myGame = getWithAuth("/api/games/my-game", user2.accessToken);
         assertThat(myGame.get("success")).isEqualTo(true);
         assertThat(myGame.get("data")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("ZSET worker advances due game timers")
+    void dueTimerAdvancesPhase() throws InterruptedException {
+        TestUser host = registerAndLogin("host");
+        TestUser user2 = registerAndLogin("user");
+        TestUser user3 = registerAndLogin("user");
+        TestUser user4 = registerAndLogin("user");
+
+        String roomId = createRoom(host.accessToken);
+        joinRoom(roomId, user2.accessToken);
+        joinRoom(roomId, user3.accessToken);
+        joinRoom(roomId, user4.accessToken);
+
+        Map<String, Object> createGame = postWithAuth("/api/games/create", host.accessToken, null);
+        String gameId = (String) createGame.get("gameId");
+
+        postWithAuthVoid("/api/games/test/timer/start", host.accessToken, Map.of(
+                "gameId", gameId,
+                "phaseEndTime", System.currentTimeMillis() + 300L));
+
+        Map<String, Object> finalStatus = awaitGamePhase(gameId, host.accessToken, "DAY_DISCUSSION", 5_000L);
+        Map<String, Object> game = (Map<String, Object>) finalStatus.get("game");
+
+        assertThat(game.get("gamePhase")).isEqualTo("DAY_DISCUSSION");
+        assertThat(((Number) game.get("currentPhase")).intValue()).isEqualTo(2);
     }
 
     private TestUser registerAndLogin(String prefix) {
@@ -155,6 +183,22 @@ class GameFlowAcceptanceTest extends RedisTestContainerSupport {
                 Void.class);
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> awaitGamePhase(String gameId, String accessToken, String expectedPhase, long timeoutMillis)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        while (System.nanoTime() < deadline) {
+            Map<String, Object> status = getWithAuth("/api/games/" + gameId + "/status", accessToken);
+            Map<String, Object> game = (Map<String, Object>) status.get("game");
+            if (game != null && expectedPhase.equals(game.get("gamePhase"))) {
+                return status;
+            }
+            Thread.sleep(100L);
+        }
+
+        return getWithAuth("/api/games/" + gameId + "/status", accessToken);
     }
 
     private String url(String path) {

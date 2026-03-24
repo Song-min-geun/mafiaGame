@@ -1,69 +1,67 @@
 package com.example.mafiagame.game.service;
 
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.TaskScheduler;
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
 
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.game.repository.GameTimerRepository;
+import com.example.mafiagame.game.timer.GameTimerJob;
 
-import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledFuture;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class SchedulerTimerService {
 
-    private final TaskScheduler taskScheduler;
-    private final GameService gameService;
     private final GameStateRepository gameStateRepository;
+    private final GameTimerRepository gameTimerRepository;
 
-    // 게임별 예약된 작업을 관리하는 맵 (GameId -> ScheduledFuture)
-    private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-
-    public SchedulerTimerService(TaskScheduler taskScheduler, @Lazy GameService gameService,
-            GameStateRepository gameStateRepository) {
-        this.taskScheduler = taskScheduler;
-        this.gameService = gameService;
+    public SchedulerTimerService(
+            GameStateRepository gameStateRepository,
+            GameTimerRepository gameTimerRepository) {
         this.gameStateRepository = gameStateRepository;
+        this.gameTimerRepository = gameTimerRepository;
     }
 
-    /**
-     * 타이머 시작 (phaseEndTime 직접 전달 - Race Condition 방지)
-     * 
-     * @param gameId             게임 ID
-     * @param phaseEndTimeMillis 페이즈 종료 시간 (epoch millis)
-     */
-    public void startTimer(String gameId, long phaseEndTimeMillis) {
-        stopTimer(gameId);
-
-        if (phaseEndTimeMillis <= 0) {
-            log.warn("타이머 시작 실패: 종료 시간이 유효하지 않음. gameId={}, endTime={}", gameId, phaseEndTimeMillis);
+    public void startTimer(GameState gameState) {
+        if (gameState == null || gameState.getPhaseEndTime() == null || gameState.getPhaseEndTime() <= 0) {
+            log.warn("타이머 시작 실패: 종료 시간이 유효하지 않음. gameId={}",
+                    gameState != null ? gameState.getGameId() : null);
             return;
         }
 
-        Instant executionTime = Instant.ofEpochMilli(phaseEndTimeMillis);
+        String timerToken = UUID.randomUUID().toString();
+        GameTimerJob timerJob = new GameTimerJob(
+                gameState.getGameId(),
+                gameState.getGamePhase(),
+                gameState.getCurrentPhase(),
+                timerToken);
 
-        ScheduledFuture<?> future = taskScheduler.schedule(() -> {
-            try {
-                log.info("타이머 실행: gameId={}", gameId);
-                gameService.advancePhase(gameId);
-            } catch (Exception e) {
-                log.error("타이머 실행 중 오류: gameId={}", gameId, e);
-            } finally {
-                scheduledTasks.remove(gameId);
-            }
-        }, executionTime);
-
-        scheduledTasks.put(gameId, future);
-        log.info("타이머 예약됨: gameId={}, endTime={}", gameId, executionTime);
+        gameStateRepository.saveTimerToken(gameState.getGameId(), timerToken);
+        gameTimerRepository.schedule(timerJob, gameState.getPhaseEndTime());
+        log.info("타이머 등록됨: gameId={}, phase={}, currentPhase={}, endTime={}",
+                gameState.getGameId(), gameState.getGamePhase(), gameState.getCurrentPhase(), gameState.getPhaseEndTime());
     }
 
     /**
-     * [Deprecated] 기존 호환용 - Redis에서 phaseEndTime 조회
+     * 테스트 및 호환용: 전달받은 종료 시각으로 Redis 타이머를 재등록한다.
+     */
+    public void startTimer(String gameId, long phaseEndTimeMillis) {
+        GameState gameState = gameStateRepository.findById(gameId).orElse(null);
+        if (gameState == null) {
+            log.warn("타이머 시작 실패: 게임 상태가 없음. gameId={}", gameId);
+            return;
+        }
+
+        gameState.setPhaseEndTime(phaseEndTimeMillis);
+        gameStateRepository.save(gameState);
+        startTimer(gameState);
+    }
+
+    /**
+     * [Deprecated] 기존 호환용 - Redis에 저장된 종료 시간으로 재등록
      */
     @Deprecated
     public void startTimer(String gameId) {
@@ -72,31 +70,12 @@ public class SchedulerTimerService {
             log.warn("타이머 시작 실패: 게임이 없거나 종료 시간이 설정되지 않음. gameId={}", gameId);
             return;
         }
-        startTimer(gameId, gameState.getPhaseEndTime());
-    }
-
-    public void startTimer(String gameId, Runnable task, Instant executionTime) {
-        stopTimer(gameId);
-
-        ScheduledFuture<?> future = taskScheduler.schedule(() -> {
-            try {
-                task.run();
-            } catch (Exception e) {
-                log.error("타이머 작업 실행 중 오류 발생: gameId={}", gameId, e);
-            } finally {
-                scheduledTasks.remove(gameId);
-            }
-        }, executionTime);
-
-        scheduledTasks.put(gameId, future);
-        log.info("타이머 설정됨: gameId={}, time={}", gameId, executionTime);
+        startTimer(gameState);
     }
 
     public void stopTimer(String gameId) {
-        ScheduledFuture<?> future = scheduledTasks.remove(gameId);
-        if (future != null) {
-            future.cancel(false);
-            log.info("타이머 취소됨: gameId={}", gameId);
-        }
+        gameTimerRepository.stop(gameId);
+        gameStateRepository.clearTimerToken(gameId);
+        log.info("타이머 제거됨: gameId={}", gameId);
     }
 }

@@ -25,7 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -71,7 +70,7 @@ public class GameService {
             StringRedisTemplate stringRedisTemplate,
             RedissonClient redissonClient,
             TransactionTemplate transactionTemplate,
-            @Lazy SchedulerTimerService timerService,
+            SchedulerTimerService timerService,
             GamePhaseFactory gamePhaseFactory,
             PhaseResultProcessor phaseResultProcessor,
             RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
@@ -305,7 +304,7 @@ public class GameService {
         // GamePhase.DAY_DISCUSSION);
 
         // 2. 타이머 시작
-        timerService.startTimer(gameId, gameState.getPhaseEndTime());
+        timerService.startTimer(gameState);
     }
 
     public void endGame(String gameId, Team winnerTeam) {
@@ -413,19 +412,19 @@ public class GameService {
      * @param gameId the identifier of the game to advance; if the game is not found
      *               or not in progress this method is a no-op
      */
-    public void advancePhase(String gameId) {
+    public boolean advancePhase(String gameId) {
         String lockKey = GAME_ADVANCE_LOCK_PREFIX + gameId;
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
             if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
                 log.warn("[advancePhase] 락 획득 실패: gameId={}", gameId);
-                return;
+                return false;
             }
 
             GameState gameState = getGameState(gameId);
             if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
-                return;
+                return true;
 
             // State Pattern: 현재 페이즈 상태 객체
             GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
@@ -439,7 +438,7 @@ public class GameService {
                 gameState.setStatus(GameStatus.ENDED);
                 gameStateRepository.save(gameState);
                 endGame(gameId, winnerTeam);
-                return;
+                return true;
             }
 
             // 2단계: 다음 상태로 전환 (State Pattern이 전환 책임)
@@ -450,10 +449,12 @@ public class GameService {
             gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
             gameStateRepository.save(gameState);
             sendPhaseSwitchMessage(gameState);
-            timerService.startTimer(gameId, gameState.getPhaseEndTime());
+            timerService.startTimer(gameState);
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("[advancePhase] 락 획득 중 인터럽트: gameId={}", gameId, e);
+            return false;
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
@@ -606,7 +607,7 @@ public class GameService {
 
             gameStateRepository.save(gameState);
             sendTimerUpdate(gameState);
-            timerService.startTimer(gameId, gameState.getPhaseEndTime());
+            timerService.startTimer(gameState);
 
             GamePlayerState player = findPlayerById(gameState, playerId);
             if (player != null) {
