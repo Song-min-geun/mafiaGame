@@ -269,7 +269,8 @@ public class GameService {
      *
      * Sets the game status to in-progress, sets the current phase to 1 with
      * GamePhase.DAY_DISCUSSION, clears any pending night actions,
-     * persists the updated GameState, and enqueues the Redis-backed timer for the phase
+     * persists the updated GameState, and enqueues the Redis-backed timer for the
+     * phase
      * end.
      *
      * @param gameId the identifier of the game to start
@@ -667,15 +668,17 @@ public class GameService {
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
-            if (!lock.tryLock(3, 5, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!lock.tryLock(3, 5, TimeUnit.SECONDS)) {
                 log.warn("[putHashIfPhaseMatches] 락 획득 실패: gameId={}", gameId);
                 return false;
             }
 
             String metaKey = GAME_META_KEY_PREFIX + gameId;
-            Object phase = stringRedisTemplate.opsForHash().get(metaKey, "phase");
-            Object current = stringRedisTemplate.opsForHash().get(metaKey, "currentPhase");
-            Object status = stringRedisTemplate.opsForHash().get(metaKey, "status");
+            List<Object> values = stringRedisTemplate.opsForHash().multiGet(metaKey,
+                    List.of("phase", "currentPhase", "status"));
+            Object phase = values.get(0);
+            Object current = values.get(1);
+            Object status = values.get(2);
 
             if (phase == null || current == null || status == null) {
                 return false;

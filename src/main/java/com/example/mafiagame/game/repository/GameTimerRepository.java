@@ -129,8 +129,10 @@ public class GameTimerRepository {
                 return false;
             }
 
+            stringRedisTemplate.opsForZSet().remove(PROCESSING_KEY, timerJob.toMember());
             stringRedisTemplate.opsForZSet().add(WAITING_KEY, timerJob.toMember(), executeAtMillis);
             return true;
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("[requeue] 타이머 락 인터럽트: gameId={}", timerJob.gameId(), e);
