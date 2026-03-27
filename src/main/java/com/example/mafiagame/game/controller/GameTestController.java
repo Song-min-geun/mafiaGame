@@ -1,7 +1,7 @@
 package com.example.mafiagame.game.controller;
 
 import com.example.mafiagame.game.service.GameService;
-import com.example.mafiagame.game.service.SchedulerTimerService;
+import com.example.mafiagame.game.service.RedisTimerService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +18,7 @@ import java.util.Map;
 public class GameTestController {
 
     private final GameService gameService;
-    private final SchedulerTimerService timerService;
+    private final RedisTimerService timerService;
 
     @PostMapping("/{gameId}/advance")
     @Operation(summary = "강제 페이즈 진행", description = "[테스트] 게임 페이즈를 강제로 다음으로 진행시킵니다.")

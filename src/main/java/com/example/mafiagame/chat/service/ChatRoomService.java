@@ -23,7 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,11 +51,6 @@ public class ChatRoomService {
     private static final String ROOM_LOCK_PREFIX = "lock:room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
     private static final int MAX_MESSAGE_LENGTH = 500;
-    private static final DefaultRedisScript<Long> REPLACE_CHAT_LOG_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('DEL', KEYS[1]); " +
-                    "for i = 1, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]); end " +
-                    "return #ARGV",
-            Long.class);
 
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageCounters = new ConcurrentHashMap<>();
@@ -152,10 +146,8 @@ public class ChatRoomService {
     private void flushChatLogBufferDirect(String roomId, List<String> buffer) {
         String key = CHAT_LOG_PREFIX + roomId;
         try {
-            stringRedisTemplate.execute(
-                    REPLACE_CHAT_LOG_SCRIPT,
-                    List.of(key),
-                    buffer.toArray());
+            stringRedisTemplate.delete(key);
+            stringRedisTemplate.opsForList().rightPushAll(key, buffer);
             log.info("채팅 로그 일괄 저장 완료: roomId={}, count={}", roomId, buffer.size());
         } catch (Exception e) {
             log.error("Redis 채팅 로그 저장 실패: roomId={}", roomId, e);

@@ -27,7 +27,6 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -56,7 +55,7 @@ public class GameService {
     private final RedissonClient redissonClient;
     private final TransactionTemplate transactionTemplate;
 
-    private final SchedulerTimerService timerService;
+    private final RedisTimerService timerService;
     private final GamePhaseFactory gamePhaseFactory;
     private final PhaseResultProcessor phaseResultProcessor;
 
@@ -70,7 +69,7 @@ public class GameService {
             StringRedisTemplate stringRedisTemplate,
             RedissonClient redissonClient,
             TransactionTemplate transactionTemplate,
-            SchedulerTimerService timerService,
+            RedisTimerService timerService,
             GamePhaseFactory gamePhaseFactory,
             PhaseResultProcessor phaseResultProcessor,
             RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
@@ -95,16 +94,7 @@ public class GameService {
     private static final String GAME_CREATE_LOCK_PREFIX = "lock:game:create:";
     private static final String GAME_END_LOCK_PREFIX = "lock:game:end:";
     private static final String GAME_ADVANCE_LOCK_PREFIX = "lock:game:advance:";
-
-    private static final DefaultRedisScript<Long> HASH_PUT_IF_PHASE_MATCH_SCRIPT = new DefaultRedisScript<>(
-            "local phase = redis.call('HGET', KEYS[1], 'phase'); " +
-                    "local current = redis.call('HGET', KEYS[1], 'currentPhase'); " +
-                    "local status = redis.call('HGET', KEYS[1], 'status'); " +
-                    "if not phase or not current or not status then return -1 end; " +
-                    "if phase ~= ARGV[1] or current ~= ARGV[2] or status ~= 'IN_PROGRESS' then return 0 end; " +
-                    "redis.call('HSET', KEYS[2], ARGV[3], ARGV[4]); " +
-                    "return 1;",
-            Long.class);
+    private static final String GAME_ACTION_LOCK_PREFIX = "lock:game:action:";
 
     @Transactional
     public GameState createGame(String roomId) {
@@ -279,7 +269,7 @@ public class GameService {
      *
      * Sets the game status to in-progress, sets the current phase to 1 with
      * GamePhase.DAY_DISCUSSION, clears any pending night actions,
-     * persists the updated GameState, and starts the scheduler timer for the phase
+     * persists the updated GameState, and enqueues the Redis-backed timer for the phase
      * end.
      *
      * @param gameId the identifier of the game to start
@@ -668,17 +658,46 @@ public class GameService {
         return gameState.findPlayer(playerId);
     }
 
+    /**
+     * 페이즈 일치 확인 후 Hash에 값을 저장 (Redisson Lock으로 원자성 보장)
+     */
     private boolean putHashIfPhaseMatches(String gameId, String hashKey, GamePhase expectedPhase,
             int expectedCurrentPhase, String field, String value) {
-        String metaKey = GAME_META_KEY_PREFIX + gameId;
-        Long result = stringRedisTemplate.execute(
-                HASH_PUT_IF_PHASE_MATCH_SCRIPT,
-                List.of(metaKey, hashKey),
-                expectedPhase.name(),
-                String.valueOf(expectedCurrentPhase),
-                field,
-                value);
-        return result != null && result == 1L;
+        String lockKey = GAME_ACTION_LOCK_PREFIX + gameId;
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(3, 5, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.warn("[putHashIfPhaseMatches] 락 획득 실패: gameId={}", gameId);
+                return false;
+            }
+
+            String metaKey = GAME_META_KEY_PREFIX + gameId;
+            Object phase = stringRedisTemplate.opsForHash().get(metaKey, "phase");
+            Object current = stringRedisTemplate.opsForHash().get(metaKey, "currentPhase");
+            Object status = stringRedisTemplate.opsForHash().get(metaKey, "status");
+
+            if (phase == null || current == null || status == null) {
+                return false;
+            }
+
+            if (!expectedPhase.name().equals(phase.toString())
+                    || !String.valueOf(expectedCurrentPhase).equals(current.toString())
+                    || !"IN_PROGRESS".equals(status.toString())) {
+                return false;
+            }
+
+            stringRedisTemplate.opsForHash().put(hashKey, field, value);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[putHashIfPhaseMatches] 락 획득 중 인터럽트: gameId={}", gameId, e);
+            return false;
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     // --- Message Sending ---

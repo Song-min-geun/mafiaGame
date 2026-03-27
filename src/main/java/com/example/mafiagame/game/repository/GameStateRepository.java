@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.GamePhase;
@@ -12,11 +11,13 @@ import com.example.mafiagame.game.domain.state.GameStatus;
 import com.example.mafiagame.game.timer.GameTimerMeta;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.stream.Collectors;
 
 @Repository
 @RequiredArgsConstructor
@@ -32,18 +33,6 @@ public class GameStateRepository {
     private static final String TIMER_TOKEN_FIELD = "timerToken";
     // TTL
     private static final Duration TTL = Duration.ofMinutes(30);
-
-    // Lua 스크립트: 메타 데이터를 원자적으로 저장
-    private static final DefaultRedisScript<Long> SAVE_META_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('HSET', KEYS[1], 'phase', ARGV[1], 'currentPhase', ARGV[2], 'status', ARGV[3]); " +
-                    "if ARGV[4] ~= '' then " +
-                    "  redis.call('HSET', KEYS[1], 'phaseEndTime', ARGV[4]); " +
-                    "else " +
-                    "  redis.call('HDEL', KEYS[1], 'phaseEndTime'); " +
-                    "end; " +
-                    "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[5])); " +
-                    "return 1",
-            Long.class);
 
     public void save(GameState gameState) {
         String key = KEY_PREFIX + gameState.getGameId();
@@ -67,16 +56,14 @@ public class GameStateRepository {
         stringRedisTemplate.delete(META_KEY_PREFIX + gameId);
     }
 
-    public void saveTimerToken(String gameId, String timerToken) {
-        String metaKey = META_KEY_PREFIX + gameId;
-        stringRedisTemplate.opsForHash().put(metaKey, TIMER_TOKEN_FIELD, timerToken);
-        stringRedisTemplate.expire(metaKey, TTL);
-    }
-
-    public void clearTimerToken(String gameId) {
-        String metaKey = META_KEY_PREFIX + gameId;
-        stringRedisTemplate.opsForHash().delete(metaKey, TIMER_TOKEN_FIELD);
-        stringRedisTemplate.expire(metaKey, TTL);
+    public List<GameState> findInProgressGames() {
+        return scanKeys(KEY_PREFIX + "*").stream()
+                .map(redisTemplate.opsForValue()::get)
+                .filter(GameState.class::isInstance)
+                .map(GameState.class::cast)
+                .filter(gameState -> gameState.getStatus() == GameStatus.IN_PROGRESS)
+                .filter(gameState -> gameState.getPhaseEndTime() != null)
+                .collect(Collectors.toList());
     }
 
     public Optional<GameTimerMeta> findMeta(String gameId) {
@@ -149,21 +136,23 @@ public class GameStateRepository {
     }
 
     /**
-     * 메타 데이터를 Lua 스크립트로 원자적으로 저장
+     * 메타 데이터를 순차 Redis 명령으로 저장 (호출자가 Lock 보유)
      */
     private void saveMeta(GameState gameState) {
         String metaKey = META_KEY_PREFIX + gameState.getGameId();
-        String phaseEndTime = gameState.getPhaseEndTime() != null
-                ? String.valueOf(gameState.getPhaseEndTime())
-                : "";
-        stringRedisTemplate.execute(
-                SAVE_META_SCRIPT,
-                List.of(metaKey),
-                gameState.getGamePhase().name(),
-                String.valueOf(gameState.getCurrentPhase()),
-                gameState.getStatus().name(),
-                phaseEndTime,
-                String.valueOf(TTL.getSeconds()));
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("phase", gameState.getGamePhase().name());
+        fields.put("currentPhase", String.valueOf(gameState.getCurrentPhase()));
+        fields.put("status", gameState.getStatus().name());
+        stringRedisTemplate.opsForHash().putAll(metaKey, fields);
+
+        if (gameState.getPhaseEndTime() != null) {
+            stringRedisTemplate.opsForHash().put(metaKey, "phaseEndTime",
+                    String.valueOf(gameState.getPhaseEndTime()));
+        } else {
+            stringRedisTemplate.opsForHash().delete(metaKey, "phaseEndTime");
+        }
+        stringRedisTemplate.expire(metaKey, TTL);
     }
 
     /**

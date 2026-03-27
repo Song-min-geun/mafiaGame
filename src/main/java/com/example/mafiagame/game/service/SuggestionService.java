@@ -8,10 +8,10 @@ import com.example.mafiagame.global.client.GeminiApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,12 +35,6 @@ public class SuggestionService {
     private static final String GAME_SUGGESTION_PREFIX = "suggestion:game:";
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
     private static final long AI_SUGGESTION_TTL_SECONDS = 60;
-    private static final DefaultRedisScript<Long> REPLACE_LIST_WITH_TTL_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('DEL', KEYS[1]); " +
-                    "for i = 1, #ARGV - 1 do redis.call('RPUSH', KEYS[1], ARGV[i]); end " +
-                    "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[#ARGV])); " +
-                    "return #ARGV - 1",
-            Long.class);
 
     /**
      * 역할별/페이즈별 기본 추천 문구 초기화 (서버 시작 시 1회 호출)
@@ -223,13 +217,10 @@ public class SuggestionService {
     }
 
     private void cacheSuggestionsAtomically(String key, List<String> suggestions) {
-        List<Object> args = new ArrayList<>(suggestions);
-        args.add(String.valueOf(AI_SUGGESTION_TTL_SECONDS));
         try {
-            stringRedisTemplate.execute(
-                    REPLACE_LIST_WITH_TTL_SCRIPT,
-                    List.of(key),
-                    args.toArray());
+            stringRedisTemplate.delete(key);
+            stringRedisTemplate.opsForList().rightPushAll(key, suggestions);
+            stringRedisTemplate.expire(key, Duration.ofSeconds(AI_SUGGESTION_TTL_SECONDS));
         } catch (Exception e) {
             log.error("AI 추천 Redis 저장 실패: key={}", key, e);
         }

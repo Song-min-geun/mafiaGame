@@ -13,18 +13,21 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class SchedulerTimerService {
+public class RedisTimerService {
 
     private final GameStateRepository gameStateRepository;
     private final GameTimerRepository gameTimerRepository;
 
-    public SchedulerTimerService(
+    public RedisTimerService(
             GameStateRepository gameStateRepository,
             GameTimerRepository gameTimerRepository) {
         this.gameStateRepository = gameStateRepository;
         this.gameTimerRepository = gameTimerRepository;
     }
 
+    /**
+     * 개별 게임마다 JVM 스케줄러를 두지 않고, Redis ZSET 대기열에 타이머를 등록한다.
+     */
     public void startTimer(GameState gameState) {
         if (gameState == null || gameState.getPhaseEndTime() == null || gameState.getPhaseEndTime() <= 0) {
             log.warn("타이머 시작 실패: 종료 시간이 유효하지 않음. gameId={}",
@@ -39,14 +42,13 @@ public class SchedulerTimerService {
                 gameState.getCurrentPhase(),
                 timerToken);
 
-        gameStateRepository.saveTimerToken(gameState.getGameId(), timerToken);
         gameTimerRepository.schedule(timerJob, gameState.getPhaseEndTime());
-        log.info("타이머 등록됨: gameId={}, phase={}, currentPhase={}, endTime={}",
+        log.info("Redis 타이머 등록됨: gameId={}, phase={}, currentPhase={}, endTime={}",
                 gameState.getGameId(), gameState.getGamePhase(), gameState.getCurrentPhase(), gameState.getPhaseEndTime());
     }
 
     /**
-     * 테스트 및 호환용: 전달받은 종료 시각으로 Redis 타이머를 재등록한다.
+     * 테스트 및 복구용: 전달받은 종료 시각으로 Redis 타이머를 재등록한다.
      */
     public void startTimer(String gameId, long phaseEndTimeMillis) {
         GameState gameState = gameStateRepository.findById(gameId).orElse(null);
@@ -75,7 +77,6 @@ public class SchedulerTimerService {
 
     public void stopTimer(String gameId) {
         gameTimerRepository.stop(gameId);
-        gameStateRepository.clearTimerToken(gameId);
-        log.info("타이머 제거됨: gameId={}", gameId);
+        log.info("Redis 타이머 제거됨: gameId={}", gameId);
     }
 }
