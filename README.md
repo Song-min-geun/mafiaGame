@@ -7,6 +7,7 @@
 - **실시간 채팅**: WebSocket + STOMP 기반 멀티룸 실시간 채팅
 - **역할 기반 게임**: 마피아/의사/경찰/시민 역할과 단계별 진행
 - **게임 상태 복구**: Redis 기반 게임 상태 저장 및 재접속 복구 지원
+- **분산 타이머 처리**: Redis ZSET + Worker 기반 페이즈 타이머 처리
 - **AI 추천 문구**: Gemini API 기반 역할/페이즈별 채팅 추천 제공
 - **보안/인증**: JWT + OAuth2, BCrypt 비밀번호 해싱
 - **동시성 제어**: Redisson 분산 락으로 입장/퇴장 정합성 보장
@@ -209,7 +210,8 @@ src/main/java/com/example/mafiagame/
 
 ### 게임 로직 및 성능
 - **방장 권한 이전 문제**: 채팅방의 방장이 방 나가기 실행 시 방장 권한이 아무에게도 넘어가지 않아 게임실행이 불가 → 해당 채팅방에 참가자 리스트 순서대로 방장 권한 전가하도록 해결
-- **게임 타이머 스레드 문제**: 모든 게임에 하나의 gameTimer를 하나씩 두어 여러개의 game이 시작 시 game 수 만큼의 gameTimer가 생성되고 감당할 수 없는 thread를 사용하게 됨 → 중앙 집중형 스케줄러로 해결
+- **게임 타이머 스레드 문제**: 모든 게임에 하나의 gameTimer를 하나씩 두어 여러개의 game이 시작 시 game 수 만큼의 gameTimer가 생성되고 감당할 수 없는 thread를 사용하게 됨 → Redis ZSET 대기열 + Worker polling 구조로 전환하여 JVM 메모리 타이머 의존성을 제거
+- **타이머 정합성 문제**: 시간 연장/단축 시 이전 타이머가 늦게 실행되거나, 워커 장애 시 타이머가 유실될 수 있음 → `timerToken` 기반 stale timer 검증과 processing lease 재큐잉으로 보완
 - **JSON 직렬화 순환 참조 문제**: 게임 시작 시 MessageConversionException 발생 (Document nesting depth exceeds the maximum allowed) → Game과 GamePlayer 간의 양방향 참조로 인한 순환 참조 문제였음. Jackson이 JSON 직렬화 시 무한 루프에 빠져서 발생. @JsonManagedReference와 @JsonBackReference 어노테이션을 사용하여 순환 참조를 방지하고 JSON 직렬화 시 깊이 제한을 초과하지 않도록 해결
 
 ## 🚧 향후 개선 계획
