@@ -55,6 +55,8 @@ public class SecurityConfig {
                                                 .requestMatchers("/ws/**").permitAll()
                                                 // H2 콘솔 허용 (개발용)
                                                 .requestMatchers("/h2-console/**").permitAll()
+                                                // Swagger UI 허용
+                                                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                                                 // OAuth2 관련 엔드포인트 허용
                                                 .requestMatchers("/oauth2/**", "/login/**", "/login/oauth2/**")
                                                 .permitAll()
@@ -62,9 +64,15 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/users/register", "/api/users/login",
                                                                 "/api/games", "/api/auth/refresh")
                                                 .permitAll()
+                                                // 아이템 조회 API (비로그인 사용자도 조회 가능)
+                                                .requestMatchers("/api/items", "/api/items/**").permitAll()
+                                                // 결제 콜백 (PG사에서 호출)
+                                                .requestMatchers("/api/payments/confirm").permitAll()
                                                 // 테스트용 API (개발 환경에서만 사용)
                                                 .requestMatchers("/api/test/**").permitAll()
-                                                // 채팅 API 엔드포인트는 인증 필요
+                                                // 주문/결제/채팅 API는 인증 필요
+                                                .requestMatchers("/api/orders/**").authenticated()
+                                                .requestMatchers("/api/payments/**").authenticated()
                                                 .requestMatchers("/api/chat/**").authenticated()
                                                 // 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())
