@@ -24,6 +24,7 @@ import * as roomUI from './ui/roomUI.js';
 import * as chatUI from './ui/chatUI.js';
 import * as gameUI from './ui/gameUI.js';
 import * as timerUI from './ui/timerUI.js';
+import * as shopUI from './ui/shopUI.js';
 import { hideElement, showElement } from './utils/helpers.js';
 
 // Initialize application on DOM load
@@ -496,6 +497,23 @@ window.submitVote = gameUI.submitVote;
 window.submitNightAction = gameUI.submitNightAction;
 
 window.updateTime = timerUI.updateTime;
+
+// ===== 상점 Global Functions =====
+window.toggleShop = shopUI.toggleShop;
+window.shopLoadShop = () => shopUI.loadShop();
+window.shopLoadInventory = shopUI.loadInventory;
+window.shopAddToCart = shopUI.addToCart;
+window.shopRemoveFromCart = shopUI.removeFromCart;
+window.shopCheckout = shopUI.checkout;
+window.shopFilterCategory = (category) => {
+    // 카테고리 필터 버튼 active 토글
+    document.querySelectorAll('.cat-filter-btn').forEach(btn => {
+        const btnCat = btn.getAttribute('onclick')?.match(/'([A-Z_]+)'/)?.[1] || null;
+        btn.classList.toggle('active', btnCat === category || (!category && !btnCat));
+    });
+    shopUI.loadShop(category);
+};
+shopUI.initShop();
 
 // Subscribe to room when joining
 // Override global functions with subscription logic
