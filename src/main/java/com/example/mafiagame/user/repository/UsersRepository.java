@@ -12,8 +12,6 @@ import org.springframework.stereotype.Repository;
 
 import com.example.mafiagame.user.domain.AuthProvider;
 import com.example.mafiagame.user.domain.Users;
-import com.example.mafiagame.user.dto.reponse.Top10UserResponse;
-
 @Repository
 public interface UsersRepository extends JpaRepository<Users, Long> {
     Optional<Users> findByUserLoginId(String userLoginId);
@@ -22,11 +20,9 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
 
     List<Users> findAllByUserLoginIdIn(List<String> userLoginIds);
 
-    @Query("SELECT new com.example.mafiagame.user.dto.reponse.Top10UserResponse(" +
-            "u.nickname, u.winRate, u.playCount) " +
-            "FROM Users u WHERE u.playCount > 50 " +
+    @Query("SELECT u FROM Users u WHERE u.playCount > 50 " +
             "ORDER BY u.winRate DESC, u.playCount DESC")
-    List<Top10UserResponse> findTopRanking(Pageable pageable);
+    List<Users> findTopRanking(Pageable pageable);
 
     /**
      * 원자적 전적 업데이트 (단일 UPDATE 쿼리로 동시성 안전)

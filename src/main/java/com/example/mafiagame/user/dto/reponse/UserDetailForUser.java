@@ -1,10 +1,17 @@
 package com.example.mafiagame.user.dto.reponse;
 
+import com.example.mafiagame.user.domain.Users;
+
 public record UserDetailForUser(
-        String nickname
-        // 유저 레벨, 승률, 해당 방 점수
+        String nickname,
+        String title,
+        String titleDisplayName
 ) {
     public UserDetailForUser(String nickname) {
-        this.nickname = nickname;
+        this(nickname, null, null);
+    }
+
+    public UserDetailForUser(Users users) {
+        this(users.getNickname(), users.getTitle().name(), users.getTitle().getDisplayName());
     }
 }

@@ -69,7 +69,9 @@ public class UserController {
         Map<String, Object> userInfo = Map.of(
                 "userId", users.getUserId(),
                 "userLoginId", users.getUserLoginId(),
-                "nickname", users.getNickname());
+                "nickname", users.getNickname(),
+                "title", users.getTitle().name(),
+                "titleDisplayName", users.getTitle().getDisplayName());
 
         return ResponseEntity.ok(CommonResponse.success(userInfo, "현재 사용자 정보 조회 성공"));
     }

@@ -2,6 +2,7 @@ package com.example.mafiagame.user.service;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -9,13 +10,18 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.mafiagame.global.error.CommonException;
 import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.jwt.JwtUtil;
 import com.example.mafiagame.global.jwt.RefreshTokenService;
+import com.example.mafiagame.global.service.CoreRedisPressureService;
 import com.example.mafiagame.user.domain.Users;
 import static com.example.mafiagame.user.domain.UserRole.USER;
 
+import java.time.Duration;
 import java.util.List;
 
 import com.example.mafiagame.user.dto.reponse.TokenResponse;
@@ -37,6 +43,12 @@ public class UserService {
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
     private final RefreshTokenService refreshTokenService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+    private final CoreRedisPressureService coreRedisPressureService;
+
+    private static final String TOP_RANKING_CACHE_KEY = "aux:user:ranking:win-rate:top10";
+    private static final Duration TOP_RANKING_CACHE_TTL = Duration.ofSeconds(30);
 
     // 유저 회원가입
     public void registerUser(RegistRequest request) {
@@ -78,7 +90,7 @@ public class UserService {
     public UserDetailForUser getUserDetailForUser(Long userId) {
         Users users = userRepository.findById(userId)
                 .orElseThrow(ErrorCode.USER_NOT_FOUND::commonException);
-        return new UserDetailForUser(users.getNickname());
+        return new UserDetailForUser(users);
     }
 
     // 유저 상세정보 ( 관리자용 )
@@ -127,6 +139,64 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<Top10UserResponse> getTopRanking() {
-        return userRepository.findTopRanking(PageRequest.of(0, 10));
+        if (isCoreRedisUnderPressure()) {
+            return findTopRankingFromDatabase();
+        }
+
+        String cached;
+        try {
+            cached = stringRedisTemplate.opsForValue().get(TOP_RANKING_CACHE_KEY);
+        } catch (RuntimeException e) {
+            return findTopRankingFromDatabase();
+        }
+
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached, new TypeReference<List<Top10UserResponse>>() {
+                });
+            } catch (JsonProcessingException e) {
+                evictAuxiliaryRankingCache();
+            }
+        }
+
+        List<Top10UserResponse> ranking = findTopRankingFromDatabase();
+
+        try {
+            stringRedisTemplate.opsForValue().set(
+                    TOP_RANKING_CACHE_KEY,
+                    objectMapper.writeValueAsString(ranking),
+                    TOP_RANKING_CACHE_TTL);
+        } catch (JsonProcessingException | RuntimeException e) {
+            // Ranking remains available from DB even when the auxiliary cache write fails.
+        }
+        return ranking;
+    }
+
+    private boolean isCoreRedisUnderPressure() {
+        try {
+            return coreRedisPressureService.shouldUseDbFallback();
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    private List<Top10UserResponse> findTopRankingFromDatabase() {
+        List<Top10UserResponse> ranking = userRepository.findTopRanking(PageRequest.of(0, 10)).stream()
+                .map(user -> new Top10UserResponse(
+                        user.getNickname(),
+                        user.getWinRate(),
+                        user.getPlayCount(),
+                        user.getTitle().name(),
+                        user.getTitle().getDisplayName()))
+                .toList();
+        return ranking;
+    }
+
+    public void evictAuxiliaryRankingCache() {
+        try {
+            stringRedisTemplate.delete(TOP_RANKING_CACHE_KEY);
+        } catch (RuntimeException e) {
+            // Cache eviction is best-effort; ranking updates must not fail on Support Redis errors.
+        }
     }
 }

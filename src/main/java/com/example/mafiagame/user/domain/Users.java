@@ -79,4 +79,8 @@ public class Users {
     public void incrementPlayCount() {
         this.playCount++;
     }
+
+    public UserTitle getTitle() {
+        return UserTitle.fromStats(this.playCount, this.winRate != null ? this.winRate : 0.0);
+    }
 }

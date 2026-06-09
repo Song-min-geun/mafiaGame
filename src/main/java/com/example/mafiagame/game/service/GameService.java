@@ -14,6 +14,7 @@ import com.example.mafiagame.game.state.GamePhaseFactory;
 import com.example.mafiagame.game.state.GamePhaseState;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.repository.UsersRepository;
+import com.example.mafiagame.user.service.UserService;
 
 import java.util.concurrent.TimeUnit;
 
@@ -51,6 +52,7 @@ public class GameService {
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
     private final UsersRepository userRepository;
+    private final UserService userService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
@@ -66,6 +68,7 @@ public class GameService {
             GameRepository gameRepository,
             GameStateRepository gameStateRepository,
             UsersRepository userRepository,
+            UserService userService,
             WebSocketMessageBroadcaster messageBroadcaster,
             @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
             @Qualifier("coreRedissonClient") RedissonClient redissonClient,
@@ -77,6 +80,7 @@ public class GameService {
         this.gameRepository = gameRepository;
         this.gameStateRepository = gameStateRepository;
         this.userRepository = userRepository;
+        this.userService = userService;
         this.messageBroadcaster = messageBroadcaster;
         this.stringRedisTemplate = stringRedisTemplate;
         this.redissonClient = redissonClient;
@@ -362,11 +366,13 @@ public class GameService {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                         @Override
                         public void afterCommit() {
+                            userService.evictAuxiliaryRankingCache();
                             finalizeGameEnd(gameId, roomId, winnerTeam, playersSnapshot);
                         }
                     });
                 } else {
                     // 트랜잭션 비활성 환경(테스트 등)에서는 즉시 실행
+                    userService.evictAuxiliaryRankingCache();
                     finalizeGameEnd(gameId, roomId, winnerTeam, playersSnapshot);
                 }
 
