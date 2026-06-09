@@ -1,7 +1,7 @@
 package com.example.mafiagame.game.repository;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
@@ -20,12 +20,18 @@ import java.util.HashSet;
 import java.util.stream.Collectors;
 
 @Repository
-@RequiredArgsConstructor
 @Slf4j
 public class GameStateRepository {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final StringRedisTemplate stringRedisTemplate;
+
+    public GameStateRepository(
+            @Qualifier("coreRedisTemplate") RedisTemplate<String, Object> redisTemplate,
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     // Redis Key Prefix
     private static final String KEY_PREFIX = "game:state:";

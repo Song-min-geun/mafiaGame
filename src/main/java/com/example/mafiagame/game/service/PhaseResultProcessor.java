@@ -11,8 +11,8 @@ import com.example.mafiagame.game.strategy.RoleActionFactory;
 import com.example.mafiagame.game.strategy.RoleActionStrategy;
 import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +27,6 @@ import java.util.stream.Collectors;
  * State Pattern의 onExit()에서 콜백으로 호출됩니다.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PhaseResultProcessor {
 
@@ -35,6 +34,17 @@ public class PhaseResultProcessor {
     private final StringRedisTemplate stringRedisTemplate;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final RoleActionFactory roleActionFactory;
+
+    public PhaseResultProcessor(
+            GameStateRepository gameStateRepository,
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            WebSocketMessageBroadcaster messageBroadcaster,
+            RoleActionFactory roleActionFactory) {
+        this.gameStateRepository = gameStateRepository;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.messageBroadcaster = messageBroadcaster;
+        this.roleActionFactory = roleActionFactory;
+    }
 
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";

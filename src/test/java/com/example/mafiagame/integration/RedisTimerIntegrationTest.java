@@ -15,9 +15,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -50,11 +52,15 @@ class RedisTimerIntegrationTest extends RedisTestContainerSupport {
     private GameTimerRecoveryService gameTimerRecoveryService;
 
     @Autowired
+    @Qualifier("coreStringRedisTemplate")
     private StringRedisTemplate stringRedisTemplate;
 
     @AfterEach
     void tearDown() {
         reset(redisTimerService);
+        try (RedisConnection connection = stringRedisTemplate.getRequiredConnectionFactory().getConnection()) {
+            connection.serverCommands().flushDb();
+        }
     }
 
     @Test
