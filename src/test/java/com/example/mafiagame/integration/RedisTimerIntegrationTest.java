@@ -30,6 +30,7 @@ import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.game.repository.GameTimerRepository;
 import com.example.mafiagame.game.service.GameTimerRecoveryService;
 import com.example.mafiagame.game.service.RedisTimerService;
+import com.example.mafiagame.game.timer.GameTimerJob;
 import com.example.mafiagame.support.RedisTestContainerSupport;
 
 @SpringBootTest
@@ -37,7 +38,11 @@ import com.example.mafiagame.support.RedisTestContainerSupport;
 class RedisTimerIntegrationTest extends RedisTestContainerSupport {
 
     private static final String WAITING_KEY = "game:timer:waiting";
+    private static final String PROCESSING_KEY = "game:timer:processing";
     private static final String CURRENT_TIMER_KEY_PREFIX = "game:timer:current:";
+    private static final String META_KEY_PREFIX = "game:meta:";
+    private static final String TIMER_TOKEN_FIELD = "timerToken";
+    private static final long FUTURE_TIMER_OFFSET_MILLIS = 120_000L;
 
     @Autowired
     private GameStateRepository gameStateRepository;
@@ -164,6 +169,114 @@ class RedisTimerIntegrationTest extends RedisTestContainerSupport {
         assertThat(gameTimerRepository.hasScheduledTimer(succeedingGame.getGameId())).isTrue();
     }
 
+    @Test
+    @DisplayName("stale token 타이머는 processing lease 만료 후 재큐잉되지 않는다")
+    void staleTokenTimerIsNotRequeuedAfterProcessingLeaseExpires() {
+        String gameId = "game-timer-stale-token";
+        long scheduledAt = futureTimerTime();
+        long claimNow = scheduledAt + 1_000L;
+        long leaseMillis = 5_000L;
+        GameTimerJob staleTimer = timerJob(gameId, "stale-token");
+        GameTimerJob currentTimer = timerJob(gameId, "current-token");
+
+        gameTimerRepository.schedule(staleTimer, scheduledAt);
+        assertThat(gameTimerRepository.claimDueTimers(claimNow, 10, leaseMillis)).containsExactly(staleTimer);
+
+        replaceCurrentTimerWithoutCleaningProcessing(currentTimer, scheduledAt + 30_000L);
+
+        assertThat(gameTimerRepository.claimExpiredProcessing(claimNow + leaseMillis + 1L, 10))
+                .containsExactly(staleTimer);
+        assertThat(gameTimerRepository.requeueIfCurrent(staleTimer, claimNow)).isFalse();
+
+        assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, staleTimer.toMember())).isNull();
+        assertThat(stringRedisTemplate.opsForZSet().score(PROCESSING_KEY, staleTimer.toMember())).isNull();
+        assertThat(stringRedisTemplate.opsForValue().get(currentTimerKey(gameId))).isEqualTo(currentTimer.toMember());
+        assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, currentTimer.toMember())).isNotNull();
+    }
+
+    @Test
+    @DisplayName("processing lease가 만료된 current 타이머는 waiting 큐로 재등록된다")
+    void expiredProcessingLeaseRequeuesCurrentTimer() {
+        String gameId = "game-timer-processing-requeue";
+        long scheduledAt = futureTimerTime();
+        long claimNow = scheduledAt + 1_000L;
+        long leaseMillis = 5_000L;
+        long requeueAt = scheduledAt + 30_000L;
+        GameTimerJob timerJob = timerJob(gameId, "lease-token");
+
+        gameTimerRepository.schedule(timerJob, scheduledAt);
+
+        assertThat(gameTimerRepository.claimDueTimers(claimNow, 10, leaseMillis)).containsExactly(timerJob);
+        assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, timerJob.toMember())).isNull();
+        assertThat(stringRedisTemplate.opsForZSet().score(PROCESSING_KEY, timerJob.toMember()))
+                .isEqualTo((double) (claimNow + leaseMillis));
+
+        assertThat(gameTimerRepository.claimExpiredProcessing(claimNow + leaseMillis + 1L, 10))
+                .containsExactly(timerJob);
+        assertThat(gameTimerRepository.requeueIfCurrent(timerJob, requeueAt)).isTrue();
+
+        assertThat(stringRedisTemplate.opsForValue().get(currentTimerKey(gameId))).isEqualTo(timerJob.toMember());
+        assertThat(stringRedisTemplate.opsForZSet().score(PROCESSING_KEY, timerJob.toMember())).isNull();
+        assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, timerJob.toMember()))
+                .isEqualTo((double) requeueAt);
+    }
+
+    @Test
+    @DisplayName("동시에 due timer를 claim해도 하나의 worker만 같은 타이머를 획득한다")
+    void concurrentClaimDueTimersMovesTimerOnlyOnce() throws Exception {
+        String gameId = "game-timer-concurrent-claim";
+        long scheduledAt = futureTimerTime();
+        long claimNow = scheduledAt + 1_000L;
+        GameTimerJob timerJob = timerJob(gameId, "claim-token");
+
+        gameTimerRepository.schedule(timerJob, scheduledAt);
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<List<GameTimerJob>> first = executorService.submit(() -> claimAfterBarrier(ready, start, claimNow));
+            Future<List<GameTimerJob>> second = executorService.submit(() -> claimAfterBarrier(ready, start, claimNow));
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            List<List<GameTimerJob>> results = List.of(
+                    first.get(5, TimeUnit.SECONDS),
+                    second.get(5, TimeUnit.SECONDS));
+            assertThat(results).anySatisfy(result -> assertThat(result).containsExactly(timerJob));
+            assertThat(results).anySatisfy(result -> assertThat(result).isEmpty());
+
+            assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, timerJob.toMember())).isNull();
+            assertThat(stringRedisTemplate.opsForZSet().score(PROCESSING_KEY, timerJob.toMember())).isNotNull();
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("이전 타이머 ACK는 새 current timer를 삭제하지 않는다")
+    void ackForPreviousTimerDoesNotDeleteNewCurrentTimer() {
+        String gameId = "game-timer-ack-keeps-current";
+        long scheduledAt = futureTimerTime();
+        long claimNow = scheduledAt + 1_000L;
+        GameTimerJob previousTimer = timerJob(gameId, "previous-token");
+        GameTimerJob currentTimer = timerJob(gameId, "current-token");
+
+        gameTimerRepository.schedule(previousTimer, scheduledAt);
+        assertThat(gameTimerRepository.claimDueTimers(claimNow, 10, 5_000L)).containsExactly(previousTimer);
+        gameTimerRepository.schedule(currentTimer, scheduledAt + 30_000L);
+
+        gameTimerRepository.ack(previousTimer);
+
+        assertThat(stringRedisTemplate.opsForValue().get(currentTimerKey(gameId))).isEqualTo(currentTimer.toMember());
+        assertThat(stringRedisTemplate.opsForHash().get(metaKey(gameId), TIMER_TOKEN_FIELD))
+                .isEqualTo(currentTimer.timerToken());
+        assertThat(stringRedisTemplate.opsForZSet().score(WAITING_KEY, currentTimer.toMember())).isNotNull();
+        assertThat(gameTimerRepository.hasScheduledTimer(gameId)).isTrue();
+    }
+
     private GameState timedGameState(String gameId, long phaseEndTime) {
         return GameState.builder()
                 .gameId(gameId)
@@ -180,6 +293,24 @@ class RedisTimerIntegrationTest extends RedisTestContainerSupport {
         return CURRENT_TIMER_KEY_PREFIX + gameId;
     }
 
+    private String metaKey(String gameId) {
+        return META_KEY_PREFIX + gameId;
+    }
+
+    private long futureTimerTime() {
+        return System.currentTimeMillis() + FUTURE_TIMER_OFFSET_MILLIS;
+    }
+
+    private GameTimerJob timerJob(String gameId, String timerToken) {
+        return new GameTimerJob(gameId, GamePhase.NIGHT_ACTION, 1, timerToken);
+    }
+
+    private void replaceCurrentTimerWithoutCleaningProcessing(GameTimerJob timerJob, long executeAtMillis) {
+        stringRedisTemplate.opsForValue().set(currentTimerKey(timerJob.gameId()), timerJob.toMember());
+        stringRedisTemplate.opsForHash().put(metaKey(timerJob.gameId()), TIMER_TOKEN_FIELD, timerJob.timerToken());
+        stringRedisTemplate.opsForZSet().add(WAITING_KEY, timerJob.toMember(), executeAtMillis);
+    }
+
     private boolean recoverAfterBarrier(GameState gameState, CountDownLatch ready, CountDownLatch start)
             throws InterruptedException {
         ready.countDown();
@@ -187,5 +318,14 @@ class RedisTimerIntegrationTest extends RedisTestContainerSupport {
             throw new IllegalStateException("start signal not received");
         }
         return redisTimerService.recoverMissingTimer(gameState);
+    }
+
+    private List<GameTimerJob> claimAfterBarrier(CountDownLatch ready, CountDownLatch start, long claimNow)
+            throws InterruptedException {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("start signal not received");
+        }
+        return gameTimerRepository.claimDueTimers(claimNow, 10, 5_000L);
     }
 }
