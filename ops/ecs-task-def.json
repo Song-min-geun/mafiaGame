@@ -18,8 +18,12 @@
         { "name": "SPRING_PROFILES_ACTIVE", "value": "prod" },
         { "name": "SPRING_DATASOURCE_URL", "value": "jdbc:mysql://<RDS_ENDPOINT>:3306/mafiaGame" },
         { "name": "SPRING_DATASOURCE_USERNAME", "value": "<DB_USERNAME>" },
-        { "name": "SPRING_DATA_REDIS_HOST", "value": "<REDIS_ENDPOINT>" },
-        { "name": "SPRING_DATA_REDIS_PORT", "value": "6379" }
+        { "name": "SPRING_DATA_REDIS_HOST", "value": "<CORE_TIMER_REDIS_PRIMARY_ENDPOINT>" },
+        { "name": "SPRING_DATA_REDIS_PORT", "value": "6379" },
+        { "name": "CORE_TIMER_REDIS_SENTINEL_MASTER", "value": "core-timer" },
+        { "name": "CORE_TIMER_REDIS_SENTINEL_NODES", "value": "<SENTINEL_1>:26379,<SENTINEL_2>:26379,<SENTINEL_3>:26379" },
+        { "name": "SUPPORT_REDIS_HOST", "value": "<SUPPORT_REDIS_ENDPOINT>" },
+        { "name": "SUPPORT_REDIS_PORT", "value": "6379" }
       ],
       "secrets": [
         { "name": "SPRING_DATASOURCE_PASSWORD", "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/mafiagame/db_password" },

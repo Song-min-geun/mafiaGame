@@ -25,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -66,13 +67,13 @@ public class GameService {
             GameStateRepository gameStateRepository,
             UsersRepository userRepository,
             WebSocketMessageBroadcaster messageBroadcaster,
-            StringRedisTemplate stringRedisTemplate,
-            RedissonClient redissonClient,
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("coreRedissonClient") RedissonClient redissonClient,
             TransactionTemplate transactionTemplate,
             RedisTimerService timerService,
             GamePhaseFactory gamePhaseFactory,
             PhaseResultProcessor phaseResultProcessor,
-            RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
+            @Qualifier("chatRoomRedisTemplate") RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
         this.gameRepository = gameRepository;
         this.gameStateRepository = gameStateRepository;
         this.userRepository = userRepository;

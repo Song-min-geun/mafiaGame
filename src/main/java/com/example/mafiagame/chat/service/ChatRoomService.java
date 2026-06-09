@@ -18,10 +18,10 @@ import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +34,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ChatRoomService {
 
@@ -55,6 +54,25 @@ public class ChatRoomService {
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageCounters = new ConcurrentHashMap<>();
     private final Object bufferLock = new Object();
+
+    public ChatRoomService(
+            UserService userService,
+            GameQueryService gameQueryService,
+            WebSocketMessageBroadcaster messageBroadcaster,
+            SuggestionService suggestionService,
+            GameStateRepository gameStateRepository,
+            @Qualifier("stringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("redissonClient") RedissonClient redissonClient,
+            RedisService redisService) {
+        this.userService = userService;
+        this.gameQueryService = gameQueryService;
+        this.messageBroadcaster = messageBroadcaster;
+        this.suggestionService = suggestionService;
+        this.gameStateRepository = gameStateRepository;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+        this.redisService = redisService;
+    }
 
     // ================== 메시지 처리 ================== //
 
