@@ -5,7 +5,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import com.example.mafiagame.game.domain.state.GameState;
-import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.game.repository.GameQueryRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,12 +15,12 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class GameTimerRecoveryService {
 
-    private final GameStateRepository gameStateRepository;
+    private final GameQueryRepository gameQueryRepository;
     private final RedisTimerService redisTimerService;
 
     @EventListener(ApplicationReadyEvent.class)
     public void recoverTimers() {
-        for (GameState gameState : gameStateRepository.findInProgressGames()) {
+        for (GameState gameState : gameQueryRepository.findInProgressGames()) {
             try {
                 boolean recovered = redisTimerService.recoverMissingTimer(gameState);
                 if (!recovered) {
