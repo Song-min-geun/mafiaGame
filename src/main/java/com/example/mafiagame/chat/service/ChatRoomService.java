@@ -12,7 +12,6 @@ import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
-import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.error.CommonException;
 import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.service.RedisService;
@@ -41,7 +40,6 @@ public class ChatRoomService {
     private final GameQueryService gameQueryService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final SuggestionService suggestionService;
-    private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final RedisService redisService;
@@ -60,7 +58,6 @@ public class ChatRoomService {
             GameQueryService gameQueryService,
             WebSocketMessageBroadcaster messageBroadcaster,
             SuggestionService suggestionService,
-            GameStateRepository gameStateRepository,
             @Qualifier("stringRedisTemplate") StringRedisTemplate stringRedisTemplate,
             @Qualifier("redissonClient") RedissonClient redissonClient,
             RedisService redisService) {
@@ -68,7 +65,6 @@ public class ChatRoomService {
         this.gameQueryService = gameQueryService;
         this.messageBroadcaster = messageBroadcaster;
         this.suggestionService = suggestionService;
-        this.gameStateRepository = gameStateRepository;
         this.stringRedisTemplate = stringRedisTemplate;
         this.redissonClient = redissonClient;
         this.redisService = redisService;
@@ -177,12 +173,13 @@ public class ChatRoomService {
 
     private void triggerAiSuggestionUpdate(String roomId) {
         // roomId로 GameState 조회하여 gameId와 phase 획득
-        gameStateRepository.findByRoomId(roomId).ifPresent(gameState -> {
+        GameState gameState = gameQueryService.getActiveGameByRoomId(roomId);
+        if (gameState != null) {
             // 현재 페이즈가 토론이나 투표 등 대화가 중요한 페이즈인지 확인 (선택사항)
             if (gameState.getGamePhase() == GamePhase.DAY_DISCUSSION) {
                 suggestionService.generateAiSuggestionsAsync(gameState.getGameId(), gameState.getGamePhase());
             }
-        });
+        }
     }
 
     /**

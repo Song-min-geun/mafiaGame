@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.game.repository.GameQueryRepository;
 import com.example.mafiagame.global.error.ErrorCode;
 
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,7 @@ public class GameService {
 
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
+    private final GameQueryRepository gameQueryRepository;
     private final UsersRepository userRepository;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
@@ -65,6 +67,7 @@ public class GameService {
     public GameService(
             GameRepository gameRepository,
             GameStateRepository gameStateRepository,
+            GameQueryRepository gameQueryRepository,
             UsersRepository userRepository,
             WebSocketMessageBroadcaster messageBroadcaster,
             @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
@@ -76,6 +79,7 @@ public class GameService {
             @Qualifier("chatRoomRedisTemplate") RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
         this.gameRepository = gameRepository;
         this.gameStateRepository = gameStateRepository;
+        this.gameQueryRepository = gameQueryRepository;
         this.userRepository = userRepository;
         this.messageBroadcaster = messageBroadcaster;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -639,7 +643,7 @@ public class GameService {
     }
 
     public GameState getGameByPlayerId(String playerId) {
-        return gameStateRepository.findByPlayerId(playerId).orElse(null);
+        return gameQueryRepository.findByPlayerId(playerId).orElse(null);
     }
 
     private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
@@ -651,7 +655,7 @@ public class GameService {
     }
 
     private GameState getActiveGameByRoomId(String roomId) {
-        return gameStateRepository.findByRoomId(roomId)
+        return gameQueryRepository.findByRoomId(roomId)
                 .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
                 .orElse(null);
     }
