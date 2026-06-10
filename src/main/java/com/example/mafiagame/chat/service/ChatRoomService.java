@@ -12,18 +12,16 @@ import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
-import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.error.CommonException;
 import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,7 +33,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ChatRoomService {
 
@@ -43,7 +40,6 @@ public class ChatRoomService {
     private final GameQueryService gameQueryService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final SuggestionService suggestionService;
-    private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final RedisService redisService;
@@ -52,15 +48,27 @@ public class ChatRoomService {
     private static final String ROOM_LOCK_PREFIX = "lock:room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
     private static final int MAX_MESSAGE_LENGTH = 500;
-    private static final DefaultRedisScript<Long> REPLACE_CHAT_LOG_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('DEL', KEYS[1]); " +
-                    "for i = 1, #ARGV do redis.call('RPUSH', KEYS[1], ARGV[i]); end " +
-                    "return #ARGV",
-            Long.class);
 
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageCounters = new ConcurrentHashMap<>();
     private final Object bufferLock = new Object();
+
+    public ChatRoomService(
+            UserService userService,
+            GameQueryService gameQueryService,
+            WebSocketMessageBroadcaster messageBroadcaster,
+            SuggestionService suggestionService,
+            @Qualifier("stringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("redissonClient") RedissonClient redissonClient,
+            RedisService redisService) {
+        this.userService = userService;
+        this.gameQueryService = gameQueryService;
+        this.messageBroadcaster = messageBroadcaster;
+        this.suggestionService = suggestionService;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+        this.redisService = redisService;
+    }
 
     // ================== 메시지 처리 ================== //
 
@@ -152,10 +160,8 @@ public class ChatRoomService {
     private void flushChatLogBufferDirect(String roomId, List<String> buffer) {
         String key = CHAT_LOG_PREFIX + roomId;
         try {
-            stringRedisTemplate.execute(
-                    REPLACE_CHAT_LOG_SCRIPT,
-                    List.of(key),
-                    buffer.toArray());
+            stringRedisTemplate.delete(key);
+            stringRedisTemplate.opsForList().rightPushAll(key, buffer);
             log.info("채팅 로그 일괄 저장 완료: roomId={}, count={}", roomId, buffer.size());
         } catch (Exception e) {
             log.error("Redis 채팅 로그 저장 실패: roomId={}", roomId, e);
@@ -167,12 +173,13 @@ public class ChatRoomService {
 
     private void triggerAiSuggestionUpdate(String roomId) {
         // roomId로 GameState 조회하여 gameId와 phase 획득
-        gameStateRepository.findByRoomId(roomId).ifPresent(gameState -> {
+        GameState gameState = gameQueryService.getActiveGameByRoomId(roomId);
+        if (gameState != null) {
             // 현재 페이즈가 토론이나 투표 등 대화가 중요한 페이즈인지 확인 (선택사항)
             if (gameState.getGamePhase() == GamePhase.DAY_DISCUSSION) {
                 suggestionService.generateAiSuggestionsAsync(gameState.getGameId(), gameState.getGamePhase());
             }
-        });
+        }
     }
 
     /**

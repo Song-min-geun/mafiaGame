@@ -5,6 +5,7 @@ import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.GameStatus;
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.game.repository.GameQueryRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class GameQueryService {
 
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
+    private final GameQueryRepository gameQueryRepository;
 
     public GameState getGameState(String gameId) {
         return gameStateRepository.findById(gameId).orElse(null);
@@ -45,7 +47,7 @@ public class GameQueryService {
      * 플레이어가 참여 중인 게임 조회 (Redis)
      */
     public GameState getGameByPlayerId(String playerId) {
-        return gameStateRepository.findByPlayerId(playerId).orElse(null);
+        return gameQueryRepository.findByPlayerId(playerId).orElse(null);
     }
 
     /**
@@ -59,7 +61,7 @@ public class GameQueryService {
      * 해당 방의 진행 중인 게임 상태 조회 (Redis)
      */
     public GameState getActiveGameByRoomId(String roomId) {
-        return gameStateRepository.findByRoomId(roomId)
+        return gameQueryRepository.findByRoomId(roomId)
                 .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
                 .orElse(null);
     }

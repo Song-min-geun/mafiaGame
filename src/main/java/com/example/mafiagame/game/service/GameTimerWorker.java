@@ -30,6 +30,9 @@ public class GameTimerWorker {
     @Value("${game.timer.worker.processing-lease-ms:15000}")
     private long processingLeaseMillis;
 
+    /**
+     * 인메모리 per-game 타이머가 아니라 Redis ZSET 대기열을 주기적으로 poll 하는 워커다.
+     */
     @Scheduled(fixedDelayString = "${game.timer.worker.poll-delay-ms:500}")
     public void pollDueTimers() {
         long now = System.currentTimeMillis();
