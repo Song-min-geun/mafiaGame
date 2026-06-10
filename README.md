@@ -37,35 +37,6 @@
 - **시민팀**: 모든 마피아를 제거
 - **마피아팀**: 마피아 수가 시민 수 이상이 되었을 때
 
-## 🛠️ 설치 및 실행
-
-### 1. 사전 요구사항
-- Java 21 이상
-- MySQL, Redis
-- Gradle (프로젝트에 포함됨)
-
-### 1-1. 환경 설정
-- `src/main/resources/application-example.properties`를 참고해 `application.properties` 생성
-- DB/Redis/JWT 기본 값은 로컬 개발용이며, 실제 값은 환경 변수로 주입 권장
-- 권장 환경 변수: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `JWT_SECRET`, `JWT_ACCESS_EXPIRATION`, `JWT_REFRESH_EXPIRATION`, `GEMINI_API_KEY`
-- OAuth2 사용 시 환경 변수 설정: `GOOGLE_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET`, `NAVER_CLIENT_ID/SECRET`, `KAKAO_CLIENT_ID/SECRET`
-- AI 추천 사용 시 `gemini.api-key` 설정
-
-### 2. 프로젝트 클론
-```bash
-git clone <repository-url>
-cd mafiagame
-```
-
-### 3. 애플리케이션 실행
-```bash
-./gradlew bootRun
-```
-
-### 4. 브라우저에서 접속
-```
-http://localhost:8080
-```
 
 ## 📱 사용법
 
@@ -122,20 +93,6 @@ http://localhost:8080
 - `/app/game.vote` - 투표
 - `/app/game.finalVote` - 최종 투표
 - `/app/game.nightAction` - 밤 행동
-
-## 📚 API 문서
-
-- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
-
-## 🗄️ 데이터베이스
-
-### 기본 DB (MySQL)
-- URL: `DB_URL` (기본값: `jdbc:mysql://localhost:3306/mafiaGame`)
-- Username: `DB_USERNAME` (기본값: `root`)
-- Password: `DB_PASSWORD` (기본값: 빈 값)
-
-### H2 (테스트용 선택)
-`application.properties`에서 H2 설정 주석을 해제하면 사용 가능
 
 ## 🧠 Redis 사용처
 
@@ -213,19 +170,3 @@ src/main/java/com/example/mafiagame/
 - **게임 타이머 스레드 문제**: 모든 게임에 하나의 gameTimer를 하나씩 두어 여러개의 game이 시작 시 game 수 만큼의 gameTimer가 생성되고 감당할 수 없는 thread를 사용하게 됨 → Redis ZSET 대기열 + Worker polling 구조로 전환하여 JVM 메모리 타이머 의존성을 제거
 - **타이머 정합성 문제**: 시간 연장/단축 시 이전 타이머가 늦게 실행되거나, 워커 장애 시 타이머가 유실될 수 있음 → `timerToken` 기반 stale timer 검증과 processing lease 재큐잉으로 보완
 - **JSON 직렬화 순환 참조 문제**: 게임 시작 시 MessageConversionException 발생 (Document nesting depth exceeds the maximum allowed) → Game과 GamePlayer 간의 양방향 참조로 인한 순환 참조 문제였음. Jackson이 JSON 직렬화 시 무한 루프에 빠져서 발생. @JsonManagedReference와 @JsonBackReference 어노테이션을 사용하여 순환 참조를 방지하고 JSON 직렬화 시 깊이 제한을 초과하지 않도록 해결
-
-## 🚧 향후 개선 계획
-
-- [ ] 더 많은 역할 추가 및 밸런싱
-- [ ] 모바일 반응형 UI 개선
-- [ ] 게임 통계 상세/리플레이 UI
-- [ ] 관측성 대시보드(메트릭/로그) 정비
-- [ ] 음성 채팅 기능
-
-## 📞 문의 및 지원
-
-프로젝트에 대한 문의사항이나 버그 리포트는 이슈로 등록해 주세요.
-
-## 📄 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
