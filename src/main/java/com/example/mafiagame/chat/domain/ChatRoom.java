@@ -41,6 +41,7 @@ public class ChatRoom implements Serializable {
         this.hostId = hostId;
         this.hostName = hostName;
         this.participants = new ArrayList<>();
+        this.maxPlayers = 12;
     }
 
     /**
