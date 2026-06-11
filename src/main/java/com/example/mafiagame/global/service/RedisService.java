@@ -9,11 +9,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.List;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -40,48 +39,16 @@ public class RedisService {
     private static final Duration GAME_TTL = Duration.ofHours(24);
     private static final Duration USER_SESSION_TTL = Duration.ofHours(24);
 
-    private static final DefaultRedisScript<Long> SAVE_CHAT_ROOM_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2]); " +
-                    "redis.call('SADD', KEYS[2], ARGV[3]); " +
-                    "return 1",
-            Long.class);
-    private static final DefaultRedisScript<Long> DELETE_CHAT_ROOM_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('DEL', KEYS[1]); " +
-                    "redis.call('SREM', KEYS[2], ARGV[1]); " +
-                    "return 1",
-            Long.class);
-    private static final DefaultRedisScript<Long> SAVE_GAME_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2]); " +
-                    "redis.call('SADD', KEYS[2], ARGV[3]); " +
-                    "return 1",
-            Long.class);
-    private static final DefaultRedisScript<Long> DELETE_GAME_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('DEL', KEYS[1]); " +
-                    "redis.call('SREM', KEYS[2], ARGV[1]); " +
-                    "return 1",
-            Long.class);
-    private static final DefaultRedisScript<Long> SAVE_USER_SESSION_SCRIPT = new DefaultRedisScript<>(
-            "redis.call('HSET', KEYS[1], 'roomId', ARGV[1], 'gameId', ARGV[2]); " +
-                    "redis.call('EXPIRE', KEYS[1], ARGV[3]); " +
-                    "return 1",
-            Long.class);
-
     // ========== 채팅방 관련 ==========
 
     /**
-     * 채팅방 저장
+     * 채팅방 저장 (호출자가 Redisson Lock 보유)
      */
     public void saveChatRoom(ChatRoom chatRoom) {
         String key = CHAT_ROOM_PREFIX + chatRoom.getRoomId();
         String payload = serializeChatRoom(chatRoom);
-        stringRedisTemplate.execute(
-                SAVE_CHAT_ROOM_SCRIPT,
-                List.of(key, ROOM_LIST_KEY),
-                payload,
-                String.valueOf(CHAT_ROOM_TTL.getSeconds()),
-                chatRoom.getRoomId());
-
-        // log.info("채팅방 Redis 저장: {}", chatRoom.getRoomId());
+        stringRedisTemplate.opsForValue().set(key, payload, CHAT_ROOM_TTL);
+        stringRedisTemplate.opsForSet().add(ROOM_LIST_KEY, chatRoom.getRoomId());
     }
 
     /**
@@ -93,16 +60,12 @@ public class RedisService {
     }
 
     /**
-     * 채팅방 삭제
+     * 채팅방 삭제 (호출자가 Redisson Lock 보유)
      */
     public void deleteChatRoom(String roomId) {
         String key = CHAT_ROOM_PREFIX + roomId;
-        stringRedisTemplate.execute(
-                DELETE_CHAT_ROOM_SCRIPT,
-                List.of(key, ROOM_LIST_KEY),
-                roomId);
-
-        // log.info("채팅방 Redis 삭제: {}", roomId);
+        stringRedisTemplate.delete(key);
+        stringRedisTemplate.opsForSet().remove(ROOM_LIST_KEY, roomId);
     }
 
     /**
@@ -119,19 +82,13 @@ public class RedisService {
     // ========== 게임 관련 ==========
 
     /**
-     * 게임 저장
+     * 게임 저장 (호출자가 Redisson Lock 보유)
      */
     public void saveGame(Game game) {
         String key = GAME_PREFIX + game.getGameId();
         String payload = serializeGame(game);
-        stringRedisTemplate.execute(
-                SAVE_GAME_SCRIPT,
-                List.of(key, ACTIVE_GAMES_KEY),
-                payload,
-                String.valueOf(GAME_TTL.getSeconds()),
-                game.getGameId());
-
-        // log.info("게임 Redis 저장: {}", game.getGameId());
+        stringRedisTemplate.opsForValue().set(key, payload, GAME_TTL);
+        stringRedisTemplate.opsForSet().add(ACTIVE_GAMES_KEY, game.getGameId());
     }
 
     /**
@@ -143,16 +100,12 @@ public class RedisService {
     }
 
     /**
-     * 게임 삭제
+     * 게임 삭제 (호출자가 Redisson Lock 보유)
      */
     public void deleteGame(String gameId) {
         String key = GAME_PREFIX + gameId;
-        stringRedisTemplate.execute(
-                DELETE_GAME_SCRIPT,
-                List.of(key, ACTIVE_GAMES_KEY),
-                gameId);
-
-        // log.info("게임 Redis 삭제: {}", gameId);
+        stringRedisTemplate.delete(key);
+        stringRedisTemplate.opsForSet().remove(ACTIVE_GAMES_KEY, gameId);
     }
 
     /**
@@ -183,20 +136,14 @@ public class RedisService {
     // ========== 사용자 세션 관련 ==========
 
     /**
-     * 사용자 세션 저장
+     * 사용자 세션 저장 (호출자가 Redisson Lock 보유)
      */
     public void saveUserSession(String userId, String roomId, String gameId) {
         String key = USER_SESSION_PREFIX + userId;
         String safeRoomId = nullToEmpty(roomId);
         String safeGameId = nullToEmpty(gameId);
-        stringRedisTemplate.execute(
-                SAVE_USER_SESSION_SCRIPT,
-                List.of(key),
-                safeRoomId,
-                safeGameId,
-                String.valueOf(USER_SESSION_TTL.getSeconds()));
-
-        // log.info("사용자 세션 저장: {} -> roomId: {}, gameId: {}", userId, roomId, gameId);
+        stringRedisTemplate.opsForHash().putAll(key, Map.of("roomId", safeRoomId, "gameId", safeGameId));
+        stringRedisTemplate.expire(key, USER_SESSION_TTL);
     }
 
     /**
