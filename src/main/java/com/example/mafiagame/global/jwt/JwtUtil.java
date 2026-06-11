@@ -1,6 +1,7 @@
 package com.example.mafiagame.global.jwt;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -37,8 +38,11 @@ public class JwtUtil implements Serializable {
 
     @PostConstruct
     public void init() {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("jwt.secret must be configured with JWT_SECRET and be at least 32 bytes.");
+        }
         // Secret을 SecretKey 객체로 변환 (최소 256비트 = 32바이트 필요)
-        this.secretKey = Keys.hmacShaKeyFor(secret.getBytes());
+        this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String getUsernameFromToken(String token) {
