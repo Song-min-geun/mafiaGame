@@ -1,28 +1,45 @@
 package com.example.mafiagame.game.repository;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 import com.example.mafiagame.game.domain.state.GameState;
+import com.example.mafiagame.game.domain.state.GamePhase;
+import com.example.mafiagame.game.domain.state.GameStatus;
+import com.example.mafiagame.game.timer.GameTimerMeta;
+
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
-@RequiredArgsConstructor
 @Slf4j
 public class GameStateRepository {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    public GameStateRepository(
+            @Qualifier("coreRedisTemplate") RedisTemplate<String, Object> redisTemplate,
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     // Redis Key Prefix
     private static final String KEY_PREFIX = "game:state:";
+    private static final String META_KEY_PREFIX = "game:meta:";
+    private static final String TIMER_TOKEN_FIELD = "timerToken";
     // TTL
     private static final Duration TTL = Duration.ofMinutes(30);
 
     public void save(GameState gameState) {
         String key = KEY_PREFIX + gameState.getGameId();
         redisTemplate.opsForValue().set(key, gameState, TTL);
+        saveMeta(gameState);
     }
 
     public Optional<GameState> findById(String gameId) {
@@ -38,49 +55,51 @@ public class GameStateRepository {
     public void delete(String gameId) {
         String key = KEY_PREFIX + gameId;
         redisTemplate.delete(key);
+        stringRedisTemplate.delete(META_KEY_PREFIX + gameId);
     }
 
-    /**
-     * 특정 플레이어가 참여 중인 게임 상태 조회
-     */
-    public Optional<GameState> findByPlayerId(String playerId) {
-        // Redis에서 모든 게임 키 조회
-        var keys = redisTemplate.keys(KEY_PREFIX + "*");
-        if (keys == null || keys.isEmpty()) {
+    public Optional<GameTimerMeta> findMeta(String gameId) {
+        String metaKey = META_KEY_PREFIX + gameId;
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(metaKey);
+        if (entries.isEmpty()) {
             return Optional.empty();
         }
 
-        for (String key : keys) {
-            Object result = redisTemplate.opsForValue().get(key);
-            if (result instanceof GameState gameState) {
-                // 해당 게임에 플레이어가 있는지 확인
-                boolean isPlayer = gameState.getPlayers().stream()
-                        .anyMatch(p -> p.getPlayerId().equals(playerId));
-                if (isPlayer) {
-                    return Optional.of(gameState);
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * 특정 방의 게임 상태 조회
-     */
-    public Optional<GameState> findByRoomId(String roomId) {
-        var keys = redisTemplate.keys(KEY_PREFIX + "*");
-        if (keys == null || keys.isEmpty()) {
+        Object phase = entries.get("phase");
+        Object currentPhase = entries.get("currentPhase");
+        Object status = entries.get("status");
+        if (phase == null || currentPhase == null || status == null) {
             return Optional.empty();
         }
 
-        for (String key : keys) {
-            Object result = redisTemplate.opsForValue().get(key);
-            if (result instanceof GameState gameState) {
-                if (roomId.equals(gameState.getRoomId())) {
-                    return Optional.of(gameState);
-                }
-            }
+        Object phaseEndTime = entries.get("phaseEndTime");
+        Object timerToken = entries.get(TIMER_TOKEN_FIELD);
+
+        return Optional.of(new GameTimerMeta(
+                GamePhase.valueOf(phase.toString()),
+                Integer.parseInt(currentPhase.toString()),
+                GameStatus.valueOf(status.toString()),
+                phaseEndTime != null ? Long.parseLong(phaseEndTime.toString()) : null,
+                timerToken != null ? timerToken.toString() : null));
+    }
+
+    /**
+     * 메타 데이터를 순차 Redis 명령으로 저장 (호출자가 Lock 보유)
+     */
+    private void saveMeta(GameState gameState) {
+        String metaKey = META_KEY_PREFIX + gameState.getGameId();
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("phase", gameState.getGamePhase().name());
+        fields.put("currentPhase", String.valueOf(gameState.getCurrentPhase()));
+        fields.put("status", gameState.getStatus().name());
+        stringRedisTemplate.opsForHash().putAll(metaKey, fields);
+
+        if (gameState.getPhaseEndTime() != null) {
+            stringRedisTemplate.opsForHash().put(metaKey, "phaseEndTime",
+                    String.valueOf(gameState.getPhaseEndTime()));
+        } else {
+            stringRedisTemplate.opsForHash().delete(metaKey, "phaseEndTime");
         }
-        return Optional.empty();
+        stringRedisTemplate.expire(metaKey, TTL);
     }
 }

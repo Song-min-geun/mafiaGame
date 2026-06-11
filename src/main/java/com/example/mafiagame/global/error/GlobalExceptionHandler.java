@@ -3,12 +3,29 @@ package com.example.mafiagame.global.error;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.HashMap;
 
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse.ErrorValidation> handleValidationException(MethodArgumentNotValidException e) {
+        ErrorResponse.ErrorValidation response = ErrorResponse.ErrorValidation.builder()
+                .code(ErrorCode.VALIDATION_FAILED.getCode())
+                .message(ErrorCode.VALIDATION_FAILED.getMessage())
+                .validation(new HashMap<>())
+                .build();
+
+        e.getBindingResult().getFieldErrors()
+                .forEach(error -> response.addValidation(error.getField(), error.getDefaultMessage()));
+
+        return new ResponseEntity<>(response, ErrorCode.VALIDATION_FAILED.getStatus());
+    }
 
     @ExceptionHandler(CommonException.class)
     public ResponseEntity<ErrorResponse> handleCommonException(CommonException e) {

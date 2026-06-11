@@ -46,8 +46,9 @@ public class StompHandler implements ChannelInterceptor {
                 return null;
             }
 
-            String token = authHeader.substring(7);
-            if (!StringUtils.hasText(token)) {
+            String token = authHeader.substring(7).trim();
+            if (!StringUtils.hasText(token) || "null".equalsIgnoreCase(token)
+                    || "undefined".equalsIgnoreCase(token)) {
                 log.warn("STOMP CONNECT rejected: empty bearer token.");
                 return null;
             }

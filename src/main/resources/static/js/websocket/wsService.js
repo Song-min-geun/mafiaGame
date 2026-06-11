@@ -33,10 +33,8 @@ export function connect() {
             return;
         }
 
-        const cleanToken = token.replace('Bearer ', '');
-
         stompClient.connect(
-            { 'Authorization': 'Bearer ' + cleanToken },
+            { 'Authorization': 'Bearer ' + token },
             (frame) => {
                 console.log('WebSocket 연결 성공:', frame);
                 setStompClient(stompClient);

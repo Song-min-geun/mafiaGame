@@ -14,7 +14,7 @@ async function apiRequest(url, options = {}) {
     };
 
     if (token) {
-        headers['Authorization'] = token;
+        headers['Authorization'] = 'Bearer ' + token;
     }
 
     return fetch(url, { 
@@ -39,8 +39,7 @@ export async function login(userLoginId, userLoginPassword) {
         throw new Error(result.message || '로그인 실패');
     }
 
-    const token = 'Bearer ' + result.data.token;
-    setJwtToken(token);
+    setJwtToken(result.data.token);
 
     // Fetch user info
     const userResponse = await apiRequest(API_ENDPOINTS.USER_ME);

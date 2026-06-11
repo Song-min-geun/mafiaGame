@@ -1,0 +1,162 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.compose
+    depends_on:
+      mysql:
+        condition: service_healthy
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+      core-redis-sentinel-1:
+        condition: service_healthy
+      core-redis-sentinel-2:
+        condition: service_healthy
+      core-redis-sentinel-3:
+        condition: service_healthy
+      support-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-master:
+    image: redis:7.2
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./ops/redis/core-master.conf:/usr/local/etc/redis/redis.conf:ro
+      - core_redis_master_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-replica:
+    image: redis:7.2
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - ./ops/redis/core-replica.conf:/usr/local/etc/redis/redis.conf:ro
+      - core_redis_replica_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-1:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_1_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-2:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_2_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-3:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_3_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  support-redis:
+    image: redis:7.2
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./ops/redis/support.conf:/usr/local/etc/redis/redis.conf:ro
+      - support_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  core_redis_master_data:
+  core_redis_replica_data:
+  core_redis_sentinel_1_data:
+  core_redis_sentinel_2_data:
+  core_redis_sentinel_3_data:
+  support_redis_data:

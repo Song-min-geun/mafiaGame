@@ -19,20 +19,21 @@ import java.util.concurrent.TimeUnit;
 
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
+import com.example.mafiagame.game.repository.GameQueryRepository;
 import com.example.mafiagame.global.error.ErrorCode;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.example.mafiagame.chat.service.WebSocketMessageBroadcaster;
 
 import java.time.LocalDateTime;
@@ -45,29 +46,60 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class GameService {
 
     private final GameRepository gameRepository;
     private final GameStateRepository gameStateRepository;
+    private final GameQueryRepository gameQueryRepository;
     private final UsersRepository userRepository;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
+    private final TransactionTemplate transactionTemplate;
 
-    @Lazy
-    private final SchedulerTimerService timerService;
+    private final RedisTimerService timerService;
     private final GamePhaseFactory gamePhaseFactory;
     private final PhaseResultProcessor phaseResultProcessor;
 
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
 
+    public GameService(
+            GameRepository gameRepository,
+            GameStateRepository gameStateRepository,
+            GameQueryRepository gameQueryRepository,
+            UsersRepository userRepository,
+            WebSocketMessageBroadcaster messageBroadcaster,
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("coreRedissonClient") RedissonClient redissonClient,
+            TransactionTemplate transactionTemplate,
+            RedisTimerService timerService,
+            GamePhaseFactory gamePhaseFactory,
+            PhaseResultProcessor phaseResultProcessor,
+            @Qualifier("chatRoomRedisTemplate") RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
+        this.gameRepository = gameRepository;
+        this.gameStateRepository = gameStateRepository;
+        this.gameQueryRepository = gameQueryRepository;
+        this.userRepository = userRepository;
+        this.messageBroadcaster = messageBroadcaster;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+        this.transactionTemplate = transactionTemplate;
+        this.timerService = timerService;
+        this.gamePhaseFactory = gamePhaseFactory;
+        this.phaseResultProcessor = phaseResultProcessor;
+        this.chatRoomRedisTemplate = chatRoomRedisTemplate;
+    }
+
     private static final String ROOM_KEY_PREFIX = "chatroom:";
     private static final String VOTE_KEY_PREFIX = "game:votes:";
+    private static final String FINAL_VOTE_KEY_PREFIX = "game:finalvotes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
+    private static final String GAME_META_KEY_PREFIX = "game:meta:";
     private static final String GAME_CREATE_LOCK_PREFIX = "lock:game:create:";
-    private static final String GAME_PHASE_LOCK_PREFIX = "lock:game:phase:";
+    private static final String GAME_END_LOCK_PREFIX = "lock:game:end:";
+    private static final String GAME_ADVANCE_LOCK_PREFIX = "lock:game:advance:";
+    private static final String GAME_ACTION_LOCK_PREFIX = "lock:game:action:";
 
     @Transactional
     public GameState createGame(String roomId) {
@@ -242,7 +274,8 @@ public class GameService {
      *
      * Sets the game status to in-progress, sets the current phase to 1 with
      * GamePhase.DAY_DISCUSSION, clears any pending night actions,
-     * persists the updated GameState, and starts the scheduler timer for the phase
+     * persists the updated GameState, and enqueues the Redis-backed timer for the
+     * phase
      * end.
      *
      * @param gameId the identifier of the game to start
@@ -267,50 +300,104 @@ public class GameService {
         // GamePhase.DAY_DISCUSSION);
 
         // 2. 타이머 시작
-        timerService.startTimer(gameId, gameState.getPhaseEndTime());
+        timerService.startTimer(gameState);
     }
 
-    @Transactional
     public void endGame(String gameId, Team winnerTeam) {
-        // ======= 1단계: 검증 (실패 시 즉시 중단, 트랜잭션 롤백) =======
-        GameState gameState = getGameState(gameId);
-        if (gameState == null)
-            return; // 이미 종료된 게임일 수 있음
+        // [수정] 게임 상태 변경은 하나의 통합된 락(GAME_ADVANCE_LOCK)을 사용하는 것이 안전합니다.
+        // endGame이 advancePhase 내부에서 호출되든, 외부(강제종료 등)에서 호출되든 동일한 자원을 보호해야 하기 때문입니다.
+        String lockKey = GAME_ADVANCE_LOCK_PREFIX + gameId;
+        RLock lock = redissonClient.getLock(lockKey);
 
-        Game game = gameRepository.findById(gameId)
-                .orElseThrow(ErrorCode.GAME_NOT_FOUND::commonException);
+        try {
+            // 락 획득 시도 (이미 advancePhase에서 획득한 경우 재진입 가능)
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[endGame] 락 획득 실패: gameId={}", gameId);
+                return;
+            }
 
-        // ======= 2단계: DB 변경 (트랜잭션으로 원자적 처리) =======
-        game.endGame(winnerTeam);
+            transactionTemplate.execute(status -> {
+                // 1단계: 상태 검증
+                GameState gameState = getGameState(gameId);
+                if (gameState == null) {
+                    log.info("[endGame] 이미 삭제된 게임 상태: gameId={}", gameId);
+                    return null;
+                }
 
-        boolean isCitizenWin = winnerTeam == Team.CITIZEN;
-        for (GamePlayerState gp : gameState.getPlayers()) {
-            if (gp.getPlayerId() == null)
-                continue;
-            boolean isMafia = gp.getTeam() == Team.MAFIA;
-            boolean isWin = (isCitizenWin && !isMafia) || (!isCitizenWin && isMafia);
-            userRepository.updateStats(gp.getPlayerId(), isWin);
-        }
+                Game game = gameRepository.findById(gameId)
+                        .orElseThrow(ErrorCode.GAME_NOT_FOUND::commonException);
+                if (game.getStatus() == GameStatus.ENDED) {
+                    log.info("[endGame] 이미 종료 처리된 게임: gameId={}", gameId);
+                    return null;
+                }
 
-        // ======= 3단계: 부수효과 (DB 커밋 성공 후에만 실행) =======
-        // 커밋 전에 실행하면 롤백 시 타이머 중지/Redis 삭제가 복구 불가
-        String roomId = gameState.getRoomId();
-        var players = List.copyOf(gameState.getPlayers());
+                // 2단계: DB 데이터 원자적 업데이트
+                game.endGame(winnerTeam);
+                gameRepository.save(game); // 명시적 저장 (변경 감지로도 되지만 명확성 위해)
 
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        try {
-                            timerService.stopTimer(gameId);
-                            messageBroadcaster.sendGameEnded(roomId, winnerTeam, players);
-                            gameStateRepository.delete(gameId);
-                            log.info("[endGame] 게임 종료 완료: gameId={}, winner={}", gameId, winnerTeam);
-                        } catch (Exception e) {
-                            log.error("[endGame] 부수효과 처리 중 오류 (DB는 정상 커밋됨): gameId={}", gameId, e);
+                // [최적화] N개의 쿼리를 2개의 배치 쿼리로 개선 (승리팀/패배팀)
+                List<String> winners = new ArrayList<>();
+                List<String> losers = new ArrayList<>();
+
+                boolean isCitizenWin = winnerTeam == Team.CITIZEN;
+                for (GamePlayerState gp : gameState.getPlayers()) {
+                    if (gp.getPlayerId() == null)
+                        continue;
+                    boolean isMafia = gp.getTeam() == Team.MAFIA;
+                    boolean isWin = (isCitizenWin && !isMafia) || (!isCitizenWin && isMafia);
+
+                    if (isWin)
+                        winners.add(gp.getPlayerId());
+                    else
+                        losers.add(gp.getPlayerId());
+                }
+
+                if (!winners.isEmpty())
+                    userRepository.updateStatsBatch(winners, true);
+                if (!losers.isEmpty())
+                    userRepository.updateStatsBatch(losers, false);
+
+                // 3단계: 부수 효과 (Redis 삭제, 타이머 중지, 메시지 전송)
+                // DB 트랜잭션이 성공적으로 커밋된 후에만 실행되도록 보장
+                String roomId = gameState.getRoomId();
+                List<GamePlayerState> playersSnapshot = new ArrayList<>(gameState.getPlayers());
+
+                if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            finalizeGameEnd(gameId, roomId, winnerTeam, playersSnapshot);
                         }
-                    }
-                });
+                    });
+                } else {
+                    // 트랜잭션 비활성 환경(테스트 등)에서는 즉시 실행
+                    finalizeGameEnd(gameId, roomId, winnerTeam, playersSnapshot);
+                }
+
+                return null;
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[endGame] 락 획득 중 인터럽트 발생: gameId={}", gameId, e);
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 게임 종료 후 부수 효과 처리 (Redis 삭제, 타이머 중지, 알림 발송)
+     */
+    private void finalizeGameEnd(String gameId, String roomId, Team winnerTeam, List<GamePlayerState> players) {
+        try {
+            timerService.stopTimer(gameId);
+            messageBroadcaster.sendGameEnded(roomId, winnerTeam, players);
+            gameStateRepository.delete(gameId);
+            log.info("[endGame] 게임 종료 처리 완료: gameId={}, winner={}", gameId, winnerTeam);
+        } catch (Exception e) {
+            log.error("[endGame] 후속 처리 중 오류 발생 (DB는 커밋됨): gameId={}", gameId, e);
+        }
     }
 
     /**
@@ -321,33 +408,19 @@ public class GameService {
      * @param gameId the identifier of the game to advance; if the game is not found
      *               or not in progress this method is a no-op
      */
-    public void advancePhase(String gameId) {
-        advancePhase(gameId, null);
-    }
+    public boolean advancePhase(String gameId) {
+        String lockKey = GAME_ADVANCE_LOCK_PREFIX + gameId;
+        RLock lock = redissonClient.getLock(lockKey);
 
-    public void advancePhaseIfTimerCurrent(String gameId, long expectedPhaseEndTimeMillis) {
-        advancePhase(gameId, expectedPhaseEndTimeMillis);
-    }
-
-    private void advancePhase(String gameId, Long expectedPhaseEndTimeMillis) {
-        RLock lock = redissonClient.getLock(GAME_PHASE_LOCK_PREFIX + gameId);
-        boolean locked = false;
         try {
-            locked = lock.tryLock(0, 30, TimeUnit.SECONDS);
-            if (!locked) {
-                log.info("[advancePhase] 이미 페이즈 전환 처리 중: gameId={}", gameId);
-                return;
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[advancePhase] 락 획득 실패: gameId={}", gameId);
+                return false;
             }
 
             GameState gameState = getGameState(gameId);
             if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
-                return;
-
-            if (expectedPhaseEndTimeMillis != null && !expectedPhaseEndTimeMillis.equals(gameState.getPhaseEndTime())) {
-                log.info("[advancePhase] 만료된 타이머 무시: gameId={}, expectedEndTime={}, currentEndTime={}",
-                        gameId, expectedPhaseEndTimeMillis, gameState.getPhaseEndTime());
-                return;
-            }
+                return true;
 
             // State Pattern: 현재 페이즈 상태 객체
             GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
@@ -361,7 +434,7 @@ public class GameService {
                 gameState.setStatus(GameStatus.ENDED);
                 gameStateRepository.save(gameState);
                 endGame(gameId, winnerTeam);
-                return;
+                return true;
             }
 
             // 2단계: 다음 상태로 전환 (State Pattern이 전환 책임)
@@ -372,12 +445,14 @@ public class GameService {
             gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
             gameStateRepository.save(gameState);
             sendPhaseSwitchMessage(gameState);
-            timerService.startTimer(gameId, gameState.getPhaseEndTime());
+            timerService.startTimer(gameState);
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("[advancePhase] 페이즈 전환 락 획득 중 인터럽트: gameId={}", gameId, e);
+            log.error("[advancePhase] 락 획득 중 인터럽트: gameId={}", gameId, e);
+            return false;
         } finally {
-            if (locked && lock.isHeldByCurrentThread()) {
+            if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }
@@ -396,8 +471,18 @@ public class GameService {
 
         String votesKey = VOTE_KEY_PREFIX + gameId;
         try {
-            stringRedisTemplate.opsForHash().put(votesKey, voterId, targetId);
-            log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
+            boolean stored = putHashIfPhaseMatches(
+                    gameId,
+                    votesKey,
+                    GamePhase.DAY_VOTING,
+                    gameState.getCurrentPhase(),
+                    voterId,
+                    targetId);
+            if (stored) {
+                log.debug("[투표] 성공: gameId={}, voterId={}, targetId={}", gameId, voterId, targetId);
+            } else {
+                log.warn("[투표] 무시됨(페이즈 변경/메타 없음): gameId={}, voterId={}", gameId, voterId);
+            }
         } catch (Exception e) {
             log.error("[투표] 오류: gameId={}", gameId, e);
         }
@@ -414,10 +499,20 @@ public class GameService {
         if (!checkFinalVoteValidity(gameState, voterId))
             return;
 
-        String finalVotesKey = "game:finalvotes:" + gameId;
+        String finalVotesKey = FINAL_VOTE_KEY_PREFIX + gameId;
         try {
-            stringRedisTemplate.opsForHash().put(finalVotesKey, voterId, voteChoice);
-            log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
+            boolean stored = putHashIfPhaseMatches(
+                    gameId,
+                    finalVotesKey,
+                    GamePhase.DAY_FINAL_VOTING,
+                    gameState.getCurrentPhase(),
+                    voterId,
+                    voteChoice);
+            if (stored) {
+                log.debug("[최종투표] 성공: gameId={}, voterId={}, choice={}", gameId, voterId, voteChoice);
+            } else {
+                log.warn("[최종투표] 무시됨(페이즈 변경/메타 없음): gameId={}, voterId={}", gameId, voterId);
+            }
         } catch (Exception e) {
             log.error("[최종투표] 오류: gameId={}", gameId, e);
         }
@@ -444,14 +539,24 @@ public class GameService {
 
         String nightActionsKey = NIGHT_ACTION_KEY_PREFIX + gameId;
         try {
-            stringRedisTemplate.opsForHash().put(nightActionsKey, actorId, targetId);
-            log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
+            boolean stored = putHashIfPhaseMatches(
+                    gameId,
+                    nightActionsKey,
+                    GamePhase.NIGHT_ACTION,
+                    gameState.getCurrentPhase(),
+                    actorId,
+                    targetId);
+            if (stored) {
+                log.debug("[밤행동] 성공: gameId={}, actorId={}, targetId={}", gameId, actorId, targetId);
 
-            // 경찰은 즉시 결과 확인
-            if (actor.getRole() == PlayerRole.POLICE) {
-                GamePlayerState target = findPlayerById(gameState, targetId);
-                if (target != null)
-                    sendPoliceInvestigationResult(actor, target);
+                // 경찰은 즉시 결과 확인
+                if (actor.getRole() == PlayerRole.POLICE) {
+                    GamePlayerState target = findPlayerById(gameState, targetId);
+                    if (target != null)
+                        sendPoliceInvestigationResult(actor, target);
+                }
+            } else {
+                log.warn("[밤행동] 무시됨(페이즈 변경/메타 없음): gameId={}, actorId={}", gameId, actorId);
             }
         } catch (Exception e) {
             log.error("[밤행동] 오류: gameId={}", gameId, e);
@@ -475,30 +580,48 @@ public class GameService {
      *         found or not in the day discussion phase
      */
     public boolean updateTime(String gameId, String playerId, int seconds) {
-        GameState gameState = getGameState(gameId);
-        if (gameState == null)
+        String lockKey = GAME_ADVANCE_LOCK_PREFIX + gameId;
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[updateTime] 락 획득 실패: gameId={}", gameId);
+                return false;
+            }
+
+            GameState gameState = getGameState(gameId);
+            if (gameState == null)
+                return false;
+
+            GamePlayerState player = findPlayerById(gameState, playerId);
+            if (player == null) {
+                return false;
+            }
+
+            if (gameState.getGamePhase() != GamePhase.DAY_DISCUSSION) {
+                return false;
+            }
+
+            if (gameState.getPhaseEndTime() != null) {
+                gameState.setPhaseEndTime(gameState.getPhaseEndTime() + (seconds * 1000L));
+            }
+
+            gameStateRepository.save(gameState);
+            sendTimerUpdate(gameState);
+            timerService.startTimer(gameState);
+
+            sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
+                    player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[updateTime] 락 획득 중 인터럽트: gameId={}", gameId, e);
             return false;
-
-        GamePlayerState player = findPlayerById(gameState, playerId);
-        if (player == null) {
-            return false;
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-
-        if (gameState.getGamePhase() != GamePhase.DAY_DISCUSSION) {
-            return false;
-        }
-
-        if (gameState.getPhaseEndTime() != null) {
-            gameState.setPhaseEndTime(gameState.getPhaseEndTime() + (seconds * 1000L));
-        }
-
-        gameStateRepository.save(gameState);
-        sendTimerUpdate(gameState);
-        timerService.startTimer(gameId, gameState.getPhaseEndTime());
-
-        sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
-                player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
-        return true;
     }
 
     // --- Query Methods ---
@@ -521,6 +644,10 @@ public class GameService {
                 .orElse(null);
     }
 
+    public GameState getGameByPlayerId(String playerId) {
+        return gameQueryRepository.findByPlayerId(playerId).orElse(null);
+    }
+
     private GamePlayerState findActivePlayerById(GameState gameState, String playerId) {
         return gameState.findActivePlayer(playerId);
     }
@@ -530,13 +657,57 @@ public class GameService {
     }
 
     private GameState getActiveGameByRoomId(String roomId) {
-        return gameStateRepository.findByRoomId(roomId)
+        return gameQueryRepository.findByRoomId(roomId)
                 .filter(gs -> gs.getStatus() == GameStatus.IN_PROGRESS)
                 .orElse(null);
     }
 
     private GamePlayerState findPlayerById(GameState gameState, String playerId) {
         return gameState.findPlayer(playerId);
+    }
+
+    /**
+     * 페이즈 일치 확인 후 Hash에 값을 저장 (Redisson Lock으로 원자성 보장)
+     */
+    private boolean putHashIfPhaseMatches(String gameId, String hashKey, GamePhase expectedPhase,
+            int expectedCurrentPhase, String field, String value) {
+        String lockKey = GAME_ACTION_LOCK_PREFIX + gameId;
+        RLock lock = redissonClient.getLock(lockKey);
+
+        try {
+            if (!lock.tryLock(3, 5, TimeUnit.SECONDS)) {
+                log.warn("[putHashIfPhaseMatches] 락 획득 실패: gameId={}", gameId);
+                return false;
+            }
+
+            String metaKey = GAME_META_KEY_PREFIX + gameId;
+            List<Object> values = stringRedisTemplate.opsForHash().multiGet(metaKey,
+                    List.of("phase", "currentPhase", "status"));
+            Object phase = values.get(0);
+            Object current = values.get(1);
+            Object status = values.get(2);
+
+            if (phase == null || current == null || status == null) {
+                return false;
+            }
+
+            if (!expectedPhase.name().equals(phase.toString())
+                    || !String.valueOf(expectedCurrentPhase).equals(current.toString())
+                    || !"IN_PROGRESS".equals(status.toString())) {
+                return false;
+            }
+
+            stringRedisTemplate.opsForHash().put(hashKey, field, value);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("[putHashIfPhaseMatches] 락 획득 중 인터럽트: gameId={}", gameId, e);
+            return false;
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     // --- Message Sending ---

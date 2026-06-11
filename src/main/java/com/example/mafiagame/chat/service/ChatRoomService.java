@@ -12,16 +12,15 @@ import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
-import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.global.error.CommonException;
 import com.example.mafiagame.global.error.ErrorCode;
 import com.example.mafiagame.global.service.RedisService;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.service.UserService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +33,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ChatRoomService {
 
@@ -42,7 +40,6 @@ public class ChatRoomService {
     private final GameQueryService gameQueryService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final SuggestionService suggestionService;
-    private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final RedisService redisService;
@@ -51,27 +48,67 @@ public class ChatRoomService {
     private static final String ROOM_LOCK_PREFIX = "lock:room:";
     private static final String USER_ROOM_LOCK_PREFIX = "lock:user-room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
+    private static final int MAX_MESSAGE_LENGTH = 500;
 
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageCounters = new ConcurrentHashMap<>();
+    private final Object bufferLock = new Object();
+
+    public ChatRoomService(
+            UserService userService,
+            GameQueryService gameQueryService,
+            WebSocketMessageBroadcaster messageBroadcaster,
+            SuggestionService suggestionService,
+            @Qualifier("stringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("redissonClient") RedissonClient redissonClient,
+            RedisService redisService) {
+        this.userService = userService;
+        this.gameQueryService = gameQueryService;
+        this.messageBroadcaster = messageBroadcaster;
+        this.suggestionService = suggestionService;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+        this.redisService = redisService;
+    }
 
     // ================== 메시지 처리 ================== //
 
     public void processAndBroadcastMessage(ChatMessage chatMessage, String senderId) {
+        if (chatMessage == null) {
+            log.warn("[sendMessage] payload is null: userId={}", senderId);
+            sendErrorMessageToUser(senderId, "메시지 형식이 올바르지 않습니다.");
+            return;
+        }
+
+        ChatRoom room = resolveRoomForUser(chatMessage.getRoomId(), senderId, "메시지 전송");
+        if (room == null) {
+            return;
+        }
+
+        String normalizedContent = normalizeValue(chatMessage.getContent());
+        if (!validateMessageContent(normalizedContent, senderId)) {
+            return;
+        }
+
         Users sender = userService.getUserByLoginId(senderId);
 
         // 보안을 위해 발신자 정보 서버에서 설정
         chatMessage.setSenderId(sender.getUserLoginId());
         chatMessage.setSenderName(sender.getNickname());
+        chatMessage.setRoomId(room.getRoomId());
+        chatMessage.setRoomName(room.getRoomName());
+        chatMessage.setContent(normalizedContent);
+        chatMessage.setTimestamp(System.currentTimeMillis());
+        chatMessage.setType(MessageType.CHAT);
 
         // 채팅 권한 검사 (GameService에 위임)
-        if (!gameQueryService.canPlayerChat(chatMessage.getRoomId(), senderId)) {
+        if (!gameQueryService.canPlayerChat(room.getRoomId(), senderId)) {
             sendErrorMessageToUser(senderId, "지금은 채팅을 할 수 없습니다.");
             return;
         }
 
         // 게임 진행 상태 확인
-        Game game = gameQueryService.getGameByRoomId(chatMessage.getRoomId());
+        Game game = gameQueryService.getGameByRoomId(room.getRoomId());
         if (game != null) {
             GameState gameState = gameQueryService.getGameState(game.getGameId());
             if (gameState != null && gameState.getGamePhase() == GamePhase.NIGHT_ACTION) {
@@ -96,35 +133,35 @@ public class ChatRoomService {
 
     /**
      * 채팅 로그를 메모리 버퍼에 추가하고, 10개가 되면 Redis에 일괄 저장
+     * synchronized 블록으로 버퍼 추가 + 카운터 증가 + flush 판단을 원자적으로 처리
      */
     private void bufferAndFlushChatLog(String roomId, String senderName, String content) {
         String logEntry = senderName + ": " + content;
+        List<String> bufferToFlush = null;
 
-        // 버퍼에 추가
-        chatLogBuffer.computeIfAbsent(roomId, k -> new ArrayList<>()).add(logEntry);
-        int count = messageCounters.merge(roomId, 1, Integer::sum);
+        synchronized (bufferLock) {
+            chatLogBuffer.computeIfAbsent(roomId, k -> new ArrayList<>()).add(logEntry);
+            int count = messageCounters.merge(roomId, 1, Integer::sum);
 
-        // 10개 모이면 Redis에 일괄 저장 후 AI 호출
-        if (count >= AI_GENERATION_MSG_COUNT) {
-            flushChatLogBuffer(roomId);
+            if (count >= AI_GENERATION_MSG_COUNT) {
+                bufferToFlush = chatLogBuffer.remove(roomId);
+                messageCounters.remove(roomId);
+            }
+        }
+
+        // Redis 저장과 AI 호출은 락 밖에서 실행 (블로킹 방지)
+        if (bufferToFlush != null && !bufferToFlush.isEmpty()) {
+            flushChatLogBufferDirect(roomId, bufferToFlush);
         }
     }
 
     /**
      * 버퍼의 채팅 로그를 Redis에 일괄 저장하고 AI 추천 갱신 트리거
      */
-    private void flushChatLogBuffer(String roomId) {
-        List<String> buffer = chatLogBuffer.remove(roomId);
-        messageCounters.remove(roomId);
-
-        if (buffer == null || buffer.isEmpty())
-            return;
-
+    private void flushChatLogBufferDirect(String roomId, List<String> buffer) {
         String key = CHAT_LOG_PREFIX + roomId;
         try {
-            // 이전 로그 삭제
             stringRedisTemplate.delete(key);
-            // 일괄 저장 (rightPushAll)
             stringRedisTemplate.opsForList().rightPushAll(key, buffer);
             log.info("채팅 로그 일괄 저장 완료: roomId={}, count={}", roomId, buffer.size());
         } catch (Exception e) {
@@ -137,12 +174,13 @@ public class ChatRoomService {
 
     private void triggerAiSuggestionUpdate(String roomId) {
         // roomId로 GameState 조회하여 gameId와 phase 획득
-        gameStateRepository.findByRoomId(roomId).ifPresent(gameState -> {
+        GameState gameState = gameQueryService.getActiveGameByRoomId(roomId);
+        if (gameState != null) {
             // 현재 페이즈가 토론이나 투표 등 대화가 중요한 페이즈인지 확인 (선택사항)
             if (gameState.getGamePhase() == GamePhase.DAY_DISCUSSION) {
                 suggestionService.generateAiSuggestionsAsync(gameState.getGameId(), gameState.getGamePhase());
             }
-        });
+        }
     }
 
     /**
@@ -155,15 +193,50 @@ public class ChatRoomService {
     }
 
     public void processAndPrivateMessage(ChatMessage chatMessage, String senderId) {
-        String recipientId = chatMessage.getRecipient();
-        if (recipientId == null || recipientId.trim().isEmpty()) {
-            messageBroadcaster.sendError(senderId, "메세지를 보낼 대상을 지정해주세요.");
+        if (chatMessage == null) {
+            log.warn("[sendPrivateMessage] payload is null: userId={}", senderId);
+            sendErrorMessageToUser(senderId, "메시지 형식이 올바르지 않습니다.");
+            return;
+        }
+
+        ChatRoom room = resolveRoomForUser(chatMessage.getRoomId(), senderId, "개인 메시지 전송");
+        if (room == null) {
+            return;
+        }
+
+        String recipientId = normalizeValue(chatMessage.getRecipient());
+        if (recipientId == null) {
+            messageBroadcaster.sendError(senderId, "메시지를 보낼 대상을 지정해주세요.");
+            return;
+        }
+        if (senderId.equals(recipientId)) {
+            messageBroadcaster.sendError(senderId, "자기 자신에게는 메시지를 보낼 수 없습니다.");
+            return;
+        }
+        if (!room.isParticipant(recipientId)) {
+            messageBroadcaster.sendError(senderId, "같은 방에 있는 사용자에게만 메시지를 보낼 수 있습니다.");
+            return;
+        }
+
+        String normalizedContent = normalizeValue(chatMessage.getContent());
+        if (!validateMessageContent(normalizedContent, senderId)) {
+            return;
+        }
+
+        if (!gameQueryService.canPlayerChat(room.getRoomId(), senderId)) {
+            sendErrorMessageToUser(senderId, "지금은 채팅을 할 수 없습니다.");
             return;
         }
 
         Users sender = userService.getUserByLoginId(senderId);
         chatMessage.setSenderId(sender.getUserLoginId());
         chatMessage.setSenderName(sender.getNickname());
+        chatMessage.setRecipient(recipientId);
+        chatMessage.setRoomId(room.getRoomId());
+        chatMessage.setRoomName(room.getRoomName());
+        chatMessage.setContent(normalizedContent);
+        chatMessage.setTimestamp(System.currentTimeMillis());
+        chatMessage.setType(MessageType.CHAT);
 
         messageBroadcaster.sendPrivateMessage(recipientId, chatMessage);
     }
@@ -189,62 +262,68 @@ public class ChatRoomService {
     }
 
     public void userJoin(JoinRoomRequest request) {
+        String roomId = normalizeValue(request.roomId());
+        if (roomId == null) {
+            sendErrorMessageToUser(request.userId(), "방 정보가 올바르지 않습니다.");
+            return;
+        }
+
         String userLockKey = USER_ROOM_LOCK_PREFIX + request.userId();
-        String lockKey = ROOM_LOCK_PREFIX + request.roomId();
+        String lockKey = ROOM_LOCK_PREFIX + roomId;
         RLock userLock = redissonClient.getLock(userLockKey);
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
             if (!userLock.tryLock(5, 10, TimeUnit.SECONDS)) {
-                log.warn("[userJoin] 유저 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                log.warn("[userJoin] 유저 락 획득 실패: roomId={}, userId={}", roomId, request.userId());
                 sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
+                return;
+            }
+
+            String currentRoomId = redisService.getUserRoomId(request.userId());
+            if (currentRoomId != null && !currentRoomId.equals(roomId)) {
+                sendErrorMessageToUser(request.userId(), "이미 다른 방에 참여 중입니다.");
                 return;
             }
 
             if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
-                log.warn("[userJoin] 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                log.warn("[userJoin] 락 획득 실패: roomId={}, userId={}", roomId, request.userId());
                 sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
                 return;
             }
 
-            ChatRoom room = getRoom(request.roomId());
+            ChatRoom room = getRoom(roomId);
             if (room == null) {
                 sendErrorMessageToUser(request.userId(), "채팅방이 존재하지 않습니다.");
                 return;
             }
 
-            String currentRoomId = redisService.getUserRoomId(request.userId());
-            if (isParticipatingInAnotherRoom(currentRoomId, request.roomId(), request.userId())) {
-                sendErrorMessageToUser(request.userId(), "이미 다른 방에 참여 중입니다.");
-                return;
-            }
-
             if (room.isParticipant(request.userId())) {
-                redisService.saveUserSession(request.userId(), request.roomId(), null);
-                return;
-            }
-
-            if (isRoomFull(room)) {
-                sendErrorMessageToUser(request.userId(), "방 정원이 가득 찼습니다.");
+                redisService.saveUserSession(request.userId(), roomId, null);
                 return;
             }
 
             Users user = userService.getUserByLoginId(request.userId());
-            room.addParticipant(request.toParticipant(user));
+            boolean added = room.addParticipant(request.toParticipant(user));
+            if (!added) {
+                sendErrorMessageToUser(request.userId(), "채팅방이 가득 찼거나 이미 참여 중입니다.");
+                return;
+            }
+
             saveRoom(room);
 
             // 유저 세션 정보 업데이트
-            redisService.saveUserSession(request.userId(), request.roomId(), null);
+            redisService.saveUserSession(request.userId(), roomId, null);
 
             String content = createJoinMessage(user, room.getHostId().equals(user.getUserLoginId()));
             ChatMessage joinMessage = ChatMessage.userJoined(room, content);
 
-            messageBroadcaster.broadcastToRoom(request.roomId(), joinMessage);
+            messageBroadcaster.broadcastToRoom(roomId, joinMessage);
             messageBroadcaster.notifyRoomListUpdated();
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("[userJoin] 인터럽트 발생: roomId={}", request.roomId(), e);
+            log.error("[userJoin] 인터럽트 발생: roomId={}", roomId, e);
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
@@ -263,48 +342,60 @@ public class ChatRoomService {
     }
 
     public void userLeave(LeaveRoomRequest request) {
-        String lockKey = ROOM_LOCK_PREFIX + request.roomId();
+        String roomId = resolveRoomIdForLeave(request.roomId(), request.userId());
+        if (roomId == null) {
+            sendErrorMessageToUser(request.userId(), "방 정보가 올바르지 않습니다.");
+            return;
+        }
+
+        String lockKey = ROOM_LOCK_PREFIX + roomId;
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
             if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
-                log.warn("[userLeave] 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                log.warn("[userLeave] 락 획득 실패: roomId={}, userId={}", roomId, request.userId());
                 sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
                 return;
             }
 
-            ChatRoom room = getRoom(request.roomId());
+            ChatRoom room = getRoom(roomId);
             if (room == null)
                 return;
 
             // 퇴장 가능 여부 확인 (GameService에 위임)
-            if (!gameQueryService.canPlayerLeaveRoom(request.roomId(), request.userId())) {
-                log.warn("게임 진행 중 퇴장 시도 차단: userId={}, roomId={}", request.userId(), request.roomId());
+            if (!gameQueryService.canPlayerLeaveRoom(roomId, request.userId())) {
+                log.warn("게임 진행 중 퇴장 시도 차단: userId={}, roomId={}", request.userId(), roomId);
                 sendErrorMessageToUser(request.userId(), "게임이 진행 중입니다. 게임이 끝날 때까지 방을 나갈 수 없습니다.");
                 return;
             }
 
+            String previousHostId = room.getHostId();
             String leftUserName = room.removeParticipant(request.userId());
-            if (leftUserName == null)
+            if (leftUserName == null) {
+                redisService.deleteUserSession(request.userId());
                 return; // 방에 없는 유저가 나가는 경우
+            }
 
             // 유저 세션 정보 삭제
             redisService.deleteUserSession(request.userId());
 
             if (room.getParticipants().isEmpty()) {
                 // 아무도 없으면 방 삭제
-                deleteRoom(request.roomId());
+                deleteRoom(roomId);
             } else {
                 // Redis에 변경된 방 정보 저장
                 saveRoom(room);
                 ChatMessage leaveMessage = ChatMessage.userLeft(room, leftUserName);
-                messageBroadcaster.broadcastToRoom(request.roomId(), leaveMessage);
+                messageBroadcaster.broadcastToRoom(roomId, leaveMessage);
+                if (!Objects.equals(previousHostId, room.getHostId())) {
+                    messageBroadcaster.sendHostChanged(roomId, room.getHostId(), room.getHostName());
+                }
             }
             messageBroadcaster.notifyRoomListUpdated();
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("[userLeave] 인터럽트 발생: roomId={}", request.roomId(), e);
+            log.error("[userLeave] 인터럽트 발생: roomId={}", roomId, e);
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
@@ -322,6 +413,7 @@ public class ChatRoomService {
         redisService.deleteChatRoom(roomId);
         // 채팅 로그도 함께 삭제
         stringRedisTemplate.delete(CHAT_LOG_PREFIX + roomId);
+        clearChatLogBuffer(roomId);
     }
 
     public void handleDisconnect(String userId) {
@@ -384,17 +476,73 @@ public class ChatRoomService {
         messageBroadcaster.sendError(userId, errorMessage);
     }
 
-    private boolean isRoomFull(ChatRoom room) {
-        int participantsCount = room.getParticipants() == null ? 0 : room.getParticipants().size();
-        return participantsCount >= room.getMaxPlayers();
+    private String normalizeValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private boolean isParticipatingInAnotherRoom(String currentRoomId, String requestedRoomId, String userId) {
-        if (currentRoomId == null || currentRoomId.equals(requestedRoomId)) {
+    private boolean validateMessageContent(String content, String userId) {
+        if (content == null) {
+            sendErrorMessageToUser(userId, "메시지를 입력해주세요.");
             return false;
         }
+        if (content.length() > MAX_MESSAGE_LENGTH) {
+            sendErrorMessageToUser(userId, "메시지는 최대 " + MAX_MESSAGE_LENGTH + "자까지 입력할 수 있습니다.");
+            return false;
+        }
+        return true;
+    }
 
-        ChatRoom currentRoom = getRoom(currentRoomId);
-        return currentRoom != null && currentRoom.isParticipant(userId);
+    private ChatRoom resolveRoomForUser(String requestedRoomId, String userId, String action) {
+        String normalizedRequest = normalizeValue(requestedRoomId);
+        String sessionRoomId = redisService.getUserRoomId(userId);
+        String resolvedRoomId = sessionRoomId != null ? sessionRoomId : normalizedRequest;
+
+        if (resolvedRoomId == null) {
+            log.warn("[{}] roomId not found: userId={}", action, userId);
+            sendErrorMessageToUser(userId, "방 정보가 올바르지 않습니다.");
+            return null;
+        }
+
+        if (sessionRoomId != null && normalizedRequest != null && !sessionRoomId.equals(normalizedRequest)) {
+            log.warn("[{}] roomId mismatch: userId={}, requestRoomId={}, sessionRoomId={}", action, userId,
+                    normalizedRequest, sessionRoomId);
+            sendErrorMessageToUser(userId, "요청한 방 정보가 올바르지 않습니다.");
+            return null;
+        }
+
+        ChatRoom room = getRoom(resolvedRoomId);
+        if (room == null) {
+            sendErrorMessageToUser(userId, "채팅방이 존재하지 않습니다.");
+            return null;
+        }
+        if (!room.isParticipant(userId)) {
+            sendErrorMessageToUser(userId, "해당 방에 참여 중이 아닙니다.");
+            return null;
+        }
+        return room;
+    }
+
+    private String resolveRoomIdForLeave(String requestedRoomId, String userId) {
+        String normalizedRequest = normalizeValue(requestedRoomId);
+        String sessionRoomId = redisService.getUserRoomId(userId);
+        if (sessionRoomId != null) {
+            if (normalizedRequest != null && !sessionRoomId.equals(normalizedRequest)) {
+                log.warn("[userLeave] roomId mismatch: userId={}, requestRoomId={}, sessionRoomId={}", userId,
+                        normalizedRequest, sessionRoomId);
+            }
+            return sessionRoomId;
+        }
+        return normalizedRequest;
+    }
+
+    private void clearChatLogBuffer(String roomId) {
+        synchronized (bufferLock) {
+            chatLogBuffer.remove(roomId);
+            messageCounters.remove(roomId);
+        }
     }
 }

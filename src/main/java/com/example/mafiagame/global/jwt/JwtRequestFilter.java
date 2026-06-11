@@ -9,6 +9,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import io.jsonwebtoken.ExpiredJwtException;
@@ -53,6 +54,11 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         }
 
         if (jwt != null) {
+            jwt = jwt.trim();
+            if (!StringUtils.hasText(jwt) || "null".equalsIgnoreCase(jwt) || "undefined".equalsIgnoreCase(jwt)) {
+                chain.doFilter(request, response);
+                return;
+            }
             try {
                 username = jwtUtil.getUsernameFromToken(jwt);
             } catch (MalformedJwtException e) {
