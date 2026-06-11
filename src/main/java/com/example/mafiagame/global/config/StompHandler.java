@@ -40,32 +40,46 @@ public class StompHandler implements ChannelInterceptor {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
 
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            try {
-                String authHeader = accessor.getFirstNativeHeader("Authorization");
-                if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                    String token = authHeader.substring(7);
-                    String username = jwtUtil.getUsernameFromToken(token);
-                    if (StringUtils.hasText(username)) {
-                        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                        if (jwtUtil.validateToken(token, userDetails)) {
-                            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                                    userDetails, null, userDetails.getAuthorities());
+            String authHeader = accessor.getFirstNativeHeader("Authorization");
+            if (!StringUtils.hasText(authHeader) || !authHeader.startsWith("Bearer ")) {
+                log.warn("STOMP CONNECT rejected: missing bearer token.");
+                return null;
+            }
 
-                            accessor.setUser(authentication);
-                            accessor.setLeaveMutable(true);
-                            Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
-                            if (sessionAttributes != null) {
-                                sessionAttributes.put("user", authentication);
-                                sessionAttributes.put("userId", username);
-                            }
-                            return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
-                        } else {
-                            log.error("StompHandler: 토큰 검증 실패! username={}, token={}", username, token);
-                        }
-                    }
+            String token = authHeader.substring(7);
+            if (!StringUtils.hasText(token)) {
+                log.warn("STOMP CONNECT rejected: empty bearer token.");
+                return null;
+            }
+
+            try {
+                String username = jwtUtil.getUsernameFromToken(token);
+                if (!StringUtils.hasText(username)) {
+                    log.warn("STOMP CONNECT rejected: token subject is empty.");
+                    return null;
                 }
+
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                if (!jwtUtil.validateToken(token, userDetails)) {
+                    log.warn("STOMP CONNECT rejected: invalid token for username={}", username);
+                    return null;
+                }
+
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+
+                accessor.setUser(authentication);
+                accessor.setLeaveMutable(true);
+                Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+                if (sessionAttributes != null) {
+                    sessionAttributes.put("user", authentication);
+                    sessionAttributes.put("userId", username);
+                }
+                return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
             } catch (Exception e) {
-                log.error("StompHandler: 토큰 인증 처리 중 예외 발생!", e);
+                log.warn("STOMP CONNECT rejected: token authentication failed. cause={}",
+                        e.getClass().getSimpleName());
+                return null;
             }
         }
         return message;
