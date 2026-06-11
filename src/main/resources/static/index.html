@@ -33,6 +33,9 @@
                     <span class="current-room" id="headerCurrentRoom"></span>
                     <span class="user-role" id="headerUserRole" style="display: none;"></span>
                 </div>
+                <button onclick="toggleShop()" class="header-shop-btn" id="headerShopBtn">
+                    🛒 상점 <span class="cart-badge" id="cartBadge" style="display: none;">0</span>
+                </button>
                 <button onclick="logout()" class="header-logout-btn">로그아웃</button>
             </div>
         </div>
@@ -204,6 +207,59 @@
                 <div class="chat-input">
                     <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." onkeypress="handleKeyPress(event)">
                     <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 상점 패널 (슬라이드 오버레이) -->
+        <div id="shopPanel" class="shop-panel hidden">
+            <div class="shop-header">
+                <div class="shop-title">
+                    <h2>🏪 아이템 상점</h2>
+                    <button class="shop-close-btn" onclick="toggleShop()">✕</button>
+                </div>
+                <div class="shop-tabs">
+                    <button class="shop-tab-btn active" data-tab="shop" onclick="window.shopLoadShop()">
+                        🛍️ 상점
+                    </button>
+                    <button class="shop-tab-btn" data-tab="inventory" onclick="window.shopLoadInventory()">
+                        📦 인벤토리
+                    </button>
+                </div>
+            </div>
+
+            <div class="shop-body">
+                <!-- 카테고리 필터 -->
+                <div class="shop-category-filter" id="shopCategoryFilter">
+                    <button class="cat-filter-btn active" onclick="window.shopFilterCategory(null)">전체</button>
+                    <button class="cat-filter-btn" onclick="window.shopFilterCategory('COSMETIC')">🎨 코스메틱</button>
+                    <button class="cat-filter-btn" onclick="window.shopFilterCategory('BOOST')">⚡ 부스트</button>
+                    <button class="cat-filter-btn" onclick="window.shopFilterCategory('SEASON_PASS')">🏆 시즌패스</button>
+                    <button class="cat-filter-btn" onclick="window.shopFilterCategory('COIN')">🪙 코인</button>
+                </div>
+
+                <!-- 아이템 목록 / 인벤토리 / 결과 -->
+                <div class="shop-content" id="shopContent">
+                    <div class="shop-loading"><div class="spinner"></div>로딩 중...</div>
+                </div>
+            </div>
+
+            <!-- 장바구니 하단 고정 -->
+            <div class="shop-cart-bar">
+                <div class="cart-summary">
+                    <h4>🛒 장바구니</h4>
+                    <div class="cart-items-list" id="cartItems">
+                        <div class="cart-empty">장바구니가 비어있습니다</div>
+                    </div>
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-total-row">
+                        <span>합계</span>
+                        <span class="cart-total" id="cartTotal">₩0</span>
+                    </div>
+                    <button class="checkout-btn" id="checkoutBtn" disabled onclick="window.shopCheckout()">
+                        💳 결제하기
+                    </button>
                 </div>
             </div>
         </div>

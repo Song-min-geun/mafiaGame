@@ -44,6 +44,7 @@ dependencies {
     // Spring Boot 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.springframework.security:spring-security-test'
 
     //h2 (개발용)
     runtimeOnly 'com.h2database:h2'
@@ -89,6 +90,20 @@ dependencies {
     // Spring Retry (Optimistic Lock 재시도용)
     implementation 'org.springframework.retry:spring-retry'
     implementation 'org.springframework:spring-aspects'
+
+    // Kafka (이벤트 기반 비동기 처리)
+    implementation 'org.springframework.kafka:spring-kafka'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+
+    // Spring Batch (정산 배치)
+    implementation 'org.springframework.boot:spring-boot-starter-batch'
+    testImplementation 'org.springframework.batch:spring-batch-test'
+
+    // WebClient (PG사 API 호출용)
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // Testcontainers Kafka
+    testImplementation 'org.testcontainers:kafka'
 }
 
 tasks.named('test') {
