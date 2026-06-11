@@ -9,6 +9,7 @@ import com.example.mafiagame.game.repository.GameStateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.Set;
@@ -46,6 +47,19 @@ public class GameQueryService {
      */
     public GameState getGameByPlayerId(String playerId) {
         return gameStateRepository.findByPlayerId(playerId).orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isGameParticipant(String gameId, String playerId) {
+        GameState gameState = getGameState(gameId);
+        if (gameState != null) {
+            return gameState.findPlayer(playerId) != null;
+        }
+
+        return gameRepository.findById(gameId)
+                .map(game -> game.getPlayers().stream()
+                        .anyMatch(player -> playerId.equals(player.getPlayerId())))
+                .orElse(false);
     }
 
     /**

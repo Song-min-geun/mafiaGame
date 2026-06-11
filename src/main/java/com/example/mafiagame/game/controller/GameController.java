@@ -6,6 +6,7 @@ import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
 
 import com.example.mafiagame.game.dto.response.CreateGameResponse;
+import com.example.mafiagame.game.dto.response.GameStateResponse;
 import com.example.mafiagame.game.service.GameService;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
@@ -147,14 +148,30 @@ public class GameController {
             @ApiResponse(responseCode = "200", description = "게임 상태 조회 성공"),
             @ApiResponse(responseCode = "400", description = "게임 상태 조회 실패")
     })
-    public ResponseEntity<?> getGameStatus(@PathVariable String gameId) {
+    public ResponseEntity<?> getGameStatus(@PathVariable String gameId, Principal principal) {
+        if (principal == null) {
+            return error(HttpStatus.UNAUTHORIZED, "인증 정보가 없습니다.");
+        }
+
+        String userId = principal.getName();
         GameState gameState = gameQueryService.getGameState(gameId);
         if (gameState != null) {
-            return ResponseEntity.ok(Map.of("success", true, "game", gameState));
+            if (!gameQueryService.isGameParticipant(gameId, userId)) {
+                return error(HttpStatus.FORBIDDEN, "게임 참가자만 상태를 조회할 수 있습니다.");
+            }
+            return ResponseEntity.ok(Map.of("success", true, "game", GameStateResponse.from(gameState, userId)));
         }
 
         // 2. 종료된 게임이면 DB에서 이력 조회
         Game game = gameQueryService.getGame(gameId);
+        if (game == null) {
+            return ResponseEntity.ok(Map.of("success", false, "message", "게임 상태를 찾을 수 없습니다."));
+        }
+
+        if (!gameQueryService.isGameParticipant(gameId, userId)) {
+            return error(HttpStatus.FORBIDDEN, "게임 참가자만 상태를 조회할 수 있습니다.");
+        }
+
         return ResponseEntity.ok(Map.of("success", true, "game", game));
     }
 
@@ -165,12 +182,18 @@ public class GameController {
             @ApiResponse(responseCode = "200", description = "게임 시간 조절 성공"),
             @ApiResponse(responseCode = "400", description = "게임 시간 조절 실패")
     })
-    public ResponseEntity<?> updateTime(@RequestBody Map<String, Object> payload) {
-        String gameId = (String) payload.get("gameId");
-        String playerId = (String) payload.get("playerId");
-        int seconds = (Integer) payload.get("seconds");
+    public ResponseEntity<?> updateTime(@RequestBody Map<String, Object> payload, Principal principal) {
+        if (principal == null) {
+            return error(HttpStatus.UNAUTHORIZED, "인증 정보가 없습니다.");
+        }
 
-        boolean success = gameService.updateTime(gameId, playerId, seconds);
+        String gameId = (String) payload.get("gameId");
+        Object secondsValue = payload.get("seconds");
+        if (gameId == null || !(secondsValue instanceof Number secondsNumber)) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "요청 값이 올바르지 않습니다."));
+        }
+
+        boolean success = gameService.updateTime(gameId, principal.getName(), secondsNumber.intValue());
         if (success) {
             return ResponseEntity.ok(Map.of("success", true, "message", "시간이 조절되었습니다."));
         }
@@ -188,7 +211,11 @@ public class GameController {
             @ApiResponse(responseCode = "200", description = "게임 상태 조회 성공"),
             @ApiResponse(responseCode = "400", description = "게임 상태 조회 실패")
     })
-    public ResponseEntity<?> getGameStateByRoom(@PathVariable String roomId) {
+    public ResponseEntity<?> getGameStateByRoom(@PathVariable String roomId, Principal principal) {
+        if (principal == null) {
+            return error(HttpStatus.UNAUTHORIZED, "인증 정보가 없습니다.");
+        }
+
         Game game = gameQueryService.getGameByRoomId(roomId);
         if (game == null) {
             return ResponseEntity.ok(Map.of("success", false, "message", "진행 중인 게임이 없습니다."));
@@ -196,7 +223,11 @@ public class GameController {
 
         GameState gameState = gameQueryService.getGameState(game.getGameId());
         if (gameState != null) {
-            return ResponseEntity.ok(Map.of("success", true, "data", gameState));
+            String userId = principal.getName();
+            if (!gameQueryService.isGameParticipant(gameState.getGameId(), userId)) {
+                return error(HttpStatus.FORBIDDEN, "게임 참가자만 상태를 조회할 수 있습니다.");
+            }
+            return ResponseEntity.ok(Map.of("success", true, "data", GameStateResponse.from(gameState, userId)));
         }
 
         return ResponseEntity.ok(Map.of("success", false, "message", "게임 상태를 찾을 수 없습니다."));
@@ -224,7 +255,7 @@ public class GameController {
         if (gameState != null) {
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", gameState,
+                    "data", GameStateResponse.from(gameState, userId),
                     "roomId", gameState.getRoomId()));
         }
 
@@ -266,5 +297,9 @@ public class GameController {
                     "success", false,
                     "message", "잘못된 역할 또는 페이즈입니다: " + e.getMessage()));
         }
+    }
+
+    private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(Map.of("success", false, "message", message));
     }
 }
