@@ -76,6 +76,56 @@ class ChatRoomIntegrationTest extends RedisTestContainerSupport {
         assertThat(participants.size()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("Create room -> Search rooms by keyword -> Get all rooms")
+    void searchAndListRooms() throws Exception {
+        TestUser host = registerAndLogin("searchHost");
+
+        // 1) Create room with specific name
+        String targetRoomName = "special-mafia-room-" + UUID.randomUUID().toString().substring(0, 4);
+        Map<String, String> createRoomBody = Map.of("roomName", targetRoomName);
+        mockMvc.perform(post("/api/chat/rooms")
+                        .header("Authorization", "Bearer " + host.accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createRoomBody)))
+                .andExpect(status().isCreated());
+
+        // 2) Get all rooms -> verify target room is present
+        MvcResult getAllResult = mockMvc.perform(get("/api/chat/rooms")
+                        .header("Authorization", "Bearer " + host.accessToken))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode allRoomsJson = objectMapper.readTree(getAllResult.getResponse().getContentAsString());
+        assertThat(allRoomsJson.isArray()).isTrue();
+        boolean foundInList = false;
+        for (JsonNode room : allRoomsJson) {
+            if (room.path("roomName").asText().equals(targetRoomName)) {
+                foundInList = true;
+                break;
+            }
+        }
+        assertThat(foundInList).isTrue();
+
+        // 3) Search rooms by keyword "special-mafia" -> verify target room is present
+        MvcResult searchResult = mockMvc.perform(get("/api/chat/rooms/search")
+                        .header("Authorization", "Bearer " + host.accessToken)
+                        .param("keyword", "special-mafia"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode searchRoomsJson = objectMapper.readTree(searchResult.getResponse().getContentAsString());
+        assertThat(searchRoomsJson.isArray()).isTrue();
+        boolean foundInSearch = false;
+        for (JsonNode room : searchRoomsJson) {
+            if (room.path("roomName").asText().equals(targetRoomName)) {
+                foundInSearch = true;
+                break;
+            }
+        }
+        assertThat(foundInSearch).isTrue();
+    }
+
     private TestUser registerAndLogin(String prefix) throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 6);
         String loginId = prefix + suffix;
