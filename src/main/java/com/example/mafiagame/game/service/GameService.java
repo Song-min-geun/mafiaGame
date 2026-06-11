@@ -67,6 +67,7 @@ public class GameService {
     private static final String VOTE_KEY_PREFIX = "game:votes:";
     private static final String NIGHT_ACTION_KEY_PREFIX = "game:nightactions:";
     private static final String GAME_CREATE_LOCK_PREFIX = "lock:game:create:";
+    private static final String GAME_PHASE_LOCK_PREFIX = "lock:game:phase:";
 
     @Transactional
     public GameState createGame(String roomId) {
@@ -321,34 +322,65 @@ public class GameService {
      *               or not in progress this method is a no-op
      */
     public void advancePhase(String gameId) {
-        GameState gameState = getGameState(gameId);
-        if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
-            return;
+        advancePhase(gameId, null);
+    }
 
-        // State Pattern: 현재 페이즈 상태 객체
-        GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
+    public void advancePhaseIfTimerCurrent(String gameId, long expectedPhaseEndTimeMillis) {
+        advancePhase(gameId, expectedPhaseEndTimeMillis);
+    }
 
-        // 1단계: 현재 페이즈 결과 처리 (State Pattern의 onExit에 위임)
-        currentState.onExit(gameState, phaseResultProcessor);
+    private void advancePhase(String gameId, Long expectedPhaseEndTimeMillis) {
+        RLock lock = redissonClient.getLock(GAME_PHASE_LOCK_PREFIX + gameId);
+        boolean locked = false;
+        try {
+            locked = lock.tryLock(0, 30, TimeUnit.SECONDS);
+            if (!locked) {
+                log.info("[advancePhase] 이미 페이즈 전환 처리 중: gameId={}", gameId);
+                return;
+            }
 
-        // 게임이 종료되었으면 endGame 호출 후 리턴
-        Team winnerTeam = phaseResultProcessor.getWinnerIfGameEnded(gameState);
-        if (winnerTeam != null) {
-            gameState.setStatus(GameStatus.ENDED);
+            GameState gameState = getGameState(gameId);
+            if (gameState == null || gameState.getStatus() != GameStatus.IN_PROGRESS)
+                return;
+
+            if (expectedPhaseEndTimeMillis != null && !expectedPhaseEndTimeMillis.equals(gameState.getPhaseEndTime())) {
+                log.info("[advancePhase] 만료된 타이머 무시: gameId={}, expectedEndTime={}, currentEndTime={}",
+                        gameId, expectedPhaseEndTimeMillis, gameState.getPhaseEndTime());
+                return;
+            }
+
+            // State Pattern: 현재 페이즈 상태 객체
+            GamePhaseState currentState = gamePhaseFactory.getState(gameState.getGamePhase());
+
+            // 1단계: 현재 페이즈 결과 처리 (State Pattern의 onExit에 위임)
+            currentState.onExit(gameState, phaseResultProcessor);
+
+            // 게임이 종료되었으면 endGame 호출 후 리턴
+            Team winnerTeam = phaseResultProcessor.getWinnerIfGameEnded(gameState);
+            if (winnerTeam != null) {
+                gameState.setStatus(GameStatus.ENDED);
+                gameStateRepository.save(gameState);
+                endGame(gameId, winnerTeam);
+                return;
+            }
+
+            // 2단계: 다음 상태로 전환 (State Pattern이 전환 책임)
+            GamePhaseState nextState = currentState.nextState(gameState);
+            nextState.process(gameState);
+
+            // 3단계: 페이즈 종료 시간 설정 + 저장 + 타이머 시작
+            gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
             gameStateRepository.save(gameState);
-            endGame(gameId, winnerTeam);
-            return;
+            sendPhaseSwitchMessage(gameState);
+            timerService.startTimer(gameId, gameState.getPhaseEndTime());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[advancePhase] 페이즈 전환 락 획득 중 인터럽트: gameId={}", gameId, e);
+        } finally {
+            if (locked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-
-        // 2단계: 다음 상태로 전환 (State Pattern이 전환 책임)
-        GamePhaseState nextState = currentState.nextState(gameState);
-        nextState.process(gameState);
-
-        // 3단계: 페이즈 종료 시간 설정 + 저장 + 타이머 시작
-        gameState.setPhaseEndTime(System.currentTimeMillis() + (nextState.getDurationSeconds() * 1000L));
-        gameStateRepository.save(gameState);
-        sendPhaseSwitchMessage(gameState);
-        timerService.startTimer(gameId, gameState.getPhaseEndTime());
     }
 
     /**
@@ -447,6 +479,11 @@ public class GameService {
         if (gameState == null)
             return false;
 
+        GamePlayerState player = findPlayerById(gameState, playerId);
+        if (player == null) {
+            return false;
+        }
+
         if (gameState.getGamePhase() != GamePhase.DAY_DISCUSSION) {
             return false;
         }
@@ -459,11 +496,8 @@ public class GameService {
         sendTimerUpdate(gameState);
         timerService.startTimer(gameId, gameState.getPhaseEndTime());
 
-        GamePlayerState player = findPlayerById(gameState, playerId);
-        if (player != null) {
-            sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
-                    player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
-        }
+        sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
+                player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
         return true;
     }
 

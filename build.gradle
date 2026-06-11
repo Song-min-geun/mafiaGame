@@ -17,6 +17,20 @@ configurations {
     }
 }
 
+sourceSets {
+    failoverTest {
+        java.srcDir file('src/failoverTest/java')
+        resources.srcDir file('src/failoverTest/resources')
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    failoverTestImplementation.extendsFrom testImplementation
+    failoverTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 repositories {
     mavenCentral()
 }
@@ -41,6 +55,8 @@ dependencies {
 
     // Spring Boot 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
 
     //h2 (개발용)
     runtimeOnly 'com.h2database:h2'
@@ -85,10 +101,37 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    minHeapSize = '256m'
+    maxHeapSize = '1g'
 
     testLogging {
         showStandardStreams = true  // System.out.println 출력 허용
         events "passed", "skipped", "failed" // 테스트 통과/실패 여부도 로그에 찍힘
+    }
+}
+
+tasks.register('failoverTest', Test) {
+    description = 'Runs Redis Sentinel/failover focused tests separately from the default test suite.'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.failoverTest.output.classesDirs
+    classpath = sourceSets.failoverTest.runtimeClasspath
+    shouldRunAfter tasks.named('test')
+
+    useJUnitPlatform()
+    minHeapSize = '512m'
+    maxHeapSize = '2g'
+    systemProperty 'spring.profiles.active', 'test,failover'
+
+    if (project.hasProperty('enableZgc')) {
+        jvmArgs '-XX:+UseZGC'
+        if (JavaVersion.current().majorVersion.toInteger() >= 21) {
+            jvmArgs '-XX:+ZGenerational'
+        }
+    }
+
+    testLogging {
+        events "passed", "skipped", "failed"
     }
 }
 
@@ -97,9 +140,15 @@ bootRun {
     jvmArgs = [
         '-Xmx2g',
         '-Xms2g',
-        '-XX:+UseZGC',
-        '-XX:+ZGenerational',
         // '-Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=5,filesize=10m', // gc.log 파일 생성
         '-XX:+HeapDumpOnOutOfMemoryError'
     ]
+
+    def javaMajor = JavaVersion.current().majorVersion.toInteger()
+    if (javaMajor >= 15) {
+        jvmArgs '-XX:+UseZGC'
+    }
+    if (javaMajor >= 21) {
+        jvmArgs '-XX:+ZGenerational'
+    }
 }
