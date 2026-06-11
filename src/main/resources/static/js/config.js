@@ -8,7 +8,13 @@ export const API_ENDPOINTS = {
     GAME_CREATE: '/api/games/create',
     GAME_UPDATE_TIME: '/api/games/update-time',
     GAME_STATE: '/api/games/state',
-    GAME_SUGGESTIONS: '/api/games/suggestions'
+    GAME_SUGGESTIONS: '/api/games/suggestions',
+    // 상점 / 결제
+    ITEMS: '/api/items',
+    ORDERS: '/api/orders',
+    PAYMENTS_CONFIRM: '/api/payments/confirm',
+    PAYMENTS_CANCEL: '/api/payments/cancel',
+    INVENTORY: '/api/items/inventory'
 };
 
 export const WS_TOPICS = {
