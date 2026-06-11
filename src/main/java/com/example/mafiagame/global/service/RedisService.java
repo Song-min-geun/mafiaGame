@@ -149,11 +149,26 @@ public class RedisService {
      */
     public void saveUserSession(String userId, String roomId, String gameId) {
         String key = USER_SESSION_PREFIX + userId;
-        redisTemplate.opsForHash().put(key, "roomId", roomId);
-        redisTemplate.opsForHash().put(key, "gameId", gameId);
+
+        if (roomId == null && gameId == null) {
+            redisTemplate.delete(key);
+            return;
+        }
+
+        putSessionField(key, "roomId", roomId);
+        putSessionField(key, "gameId", gameId);
         redisTemplate.expire(key, Duration.ofHours(24));
 
         // log.info("사용자 세션 저장: {} -> roomId: {}, gameId: {}", userId, roomId, gameId);
+    }
+
+    private void putSessionField(String key, String field, String value) {
+        if (value == null) {
+            redisTemplate.opsForHash().delete(key, field);
+            return;
+        }
+
+        redisTemplate.opsForHash().put(key, field, value);
     }
 
     /**

@@ -23,7 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -45,13 +44,12 @@ public class ChatRoomService {
     private final SuggestionService suggestionService;
     private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
-    private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
     private final RedissonClient redissonClient;
     private final RedisService redisService;
 
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
-    private static final String ROOM_KEY_PREFIX = "chatroom:";
     private static final String ROOM_LOCK_PREFIX = "lock:room:";
+    private static final String USER_ROOM_LOCK_PREFIX = "lock:user-room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
 
     private final Map<String, List<String>> chatLogBuffer = new ConcurrentHashMap<>();
@@ -177,13 +175,13 @@ public class ChatRoomService {
         ChatRoom room = request.toEntity(host);
 
         room.addParticipant(request.toHostParticipant(host));
-        chatRoomRedisTemplate.opsForValue().set(ROOM_KEY_PREFIX + room.getRoomId(), room);
+        saveRoom(room);
 
         // RedisService를 통한 유저 세션 관리 강화 (옵션)
         try {
             redisService.saveUserSession(hostId, room.getRoomId(), null);
         } catch (Exception e) {
-            chatRoomRedisTemplate.delete(ROOM_KEY_PREFIX + room.getRoomId());
+            deleteRoom(room.getRoomId());
             log.error("채팅방 생성 중 세션 저장 실패. 롤백 수행 (방 삭제): roomId={}", room.getRoomId(), e);
             throw new CommonException(ErrorCode.CHAT_ROOM_CREATE_FAILED);
         }
@@ -191,10 +189,18 @@ public class ChatRoomService {
     }
 
     public void userJoin(JoinRoomRequest request) {
+        String userLockKey = USER_ROOM_LOCK_PREFIX + request.userId();
         String lockKey = ROOM_LOCK_PREFIX + request.roomId();
+        RLock userLock = redissonClient.getLock(userLockKey);
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
+            if (!userLock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[userJoin] 유저 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
+                sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
+                return;
+            }
+
             if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
                 log.warn("[userJoin] 락 획득 실패: roomId={}, userId={}", request.roomId(), request.userId());
                 sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
@@ -207,9 +213,24 @@ public class ChatRoomService {
                 return;
             }
 
+            String currentRoomId = redisService.getUserRoomId(request.userId());
+            if (isParticipatingInAnotherRoom(currentRoomId, request.roomId(), request.userId())) {
+                sendErrorMessageToUser(request.userId(), "이미 다른 방에 참여 중입니다.");
+                return;
+            }
+
+            if (room.isParticipant(request.userId())) {
+                redisService.saveUserSession(request.userId(), request.roomId(), null);
+                return;
+            }
+
+            if (isRoomFull(room)) {
+                sendErrorMessageToUser(request.userId(), "방 정원이 가득 찼습니다.");
+                return;
+            }
+
             Users user = userService.getUserByLoginId(request.userId());
             room.addParticipant(request.toParticipant(user));
-
             saveRoom(room);
 
             // 유저 세션 정보 업데이트
@@ -227,6 +248,9 @@ public class ChatRoomService {
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
+            }
+            if (userLock.isHeldByCurrentThread()) {
+                userLock.unlock();
             }
         }
     }
@@ -290,12 +314,12 @@ public class ChatRoomService {
 
     // 방 저장
     private void saveRoom(ChatRoom room) {
-        chatRoomRedisTemplate.opsForValue().set(ROOM_KEY_PREFIX + room.getRoomId(), room);
+        redisService.saveChatRoom(room);
     }
 
     // 방 삭제
     private void deleteRoom(String roomId) {
-        chatRoomRedisTemplate.delete(ROOM_KEY_PREFIX + roomId);
+        redisService.deleteChatRoom(roomId);
         // 채팅 로그도 함께 삭제
         stringRedisTemplate.delete(CHAT_LOG_PREFIX + roomId);
     }
@@ -320,7 +344,7 @@ public class ChatRoomService {
     }
 
     public ChatRoom getRoom(String roomId) {
-        return chatRoomRedisTemplate.opsForValue().get(ROOM_KEY_PREFIX + roomId);
+        return redisService.getChatRoom(roomId);
     }
 
     public List<ChatRoom> getAllRooms() {
@@ -358,5 +382,19 @@ public class ChatRoomService {
 
     private void sendErrorMessageToUser(String userId, String errorMessage) {
         messageBroadcaster.sendError(userId, errorMessage);
+    }
+
+    private boolean isRoomFull(ChatRoom room) {
+        int participantsCount = room.getParticipants() == null ? 0 : room.getParticipants().size();
+        return participantsCount >= room.getMaxPlayers();
+    }
+
+    private boolean isParticipatingInAnotherRoom(String currentRoomId, String requestedRoomId, String userId) {
+        if (currentRoomId == null || currentRoomId.equals(requestedRoomId)) {
+            return false;
+        }
+
+        ChatRoom currentRoom = getRoom(currentRoomId);
+        return currentRoom != null && currentRoom.isParticipant(userId);
     }
 }
