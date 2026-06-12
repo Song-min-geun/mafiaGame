@@ -1,5 +1,6 @@
 package com.example.mafiagame.support;
 
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -8,6 +9,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 @ActiveProfiles("test")
+@Import(TestKafkaConfig.class)
 public abstract class RedisTestContainerSupport {
 
     @Container
@@ -18,5 +20,9 @@ public abstract class RedisTestContainerSupport {
     static void overrideRedisProps(DynamicPropertyRegistry registry) {
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("mafiagame.redis.core.host", REDIS::getHost);
+        registry.add("mafiagame.redis.core.port", () -> REDIS.getMappedPort(6379));
+        registry.add("mafiagame.redis.support.host", REDIS::getHost);
+        registry.add("mafiagame.redis.support.port", () -> REDIS.getMappedPort(6379));
     }
 }

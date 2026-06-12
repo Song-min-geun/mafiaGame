@@ -8,12 +8,12 @@ import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.example.mafiagame.game.timer.GameTimerJob;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
  * 모든 원자적 연산은 Redisson Lock을 사용하여 동시성을 보장한다.
  */
 @Repository
-@RequiredArgsConstructor
 @Slf4j
 public class GameTimerRepository {
 
@@ -36,6 +35,13 @@ public class GameTimerRepository {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
+
+    public GameTimerRepository(
+            @Qualifier("coreStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("coreRedissonClient") RedissonClient redissonClient) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+    }
 
     /**
      * 타이머를 스케줄링한다. 기존 타이머가 있으면 제거 후 새로 등록.

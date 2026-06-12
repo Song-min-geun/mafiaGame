@@ -8,6 +8,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -23,6 +24,7 @@ import org.springframework.util.backoff.FixedBackOff;
  * DLT(Dead Letter Topic) 전송은 추후 필요 시 추가 가능.
  */
 @Configuration
+@Profile("!test")
 public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")

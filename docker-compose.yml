@@ -12,7 +12,17 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+      core-redis-sentinel-1:
+        condition: service_healthy
+      core-redis-sentinel-2:
+        condition: service_healthy
+      core-redis-sentinel-3:
+        condition: service_healthy
+      support-redis:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -36,13 +46,107 @@ services:
       retries: 10
     restart: unless-stopped
 
-  redis:
+  core-redis-master:
     image: redis:7.2
-    command: [ "redis-server", "--appendonly", "yes" ]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - ./ops/redis/core-master.conf:/usr/local/etc/redis/redis.conf:ro
+      - core_redis_master_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-replica:
+    image: redis:7.2
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - ./ops/redis/core-replica.conf:/usr/local/etc/redis/redis.conf:ro
+      - core_redis_replica_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-1:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_1_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-2:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_2_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  core-redis-sentinel-3:
+    image: redis:7.2
+    command: ["sh", "-c", "cp /usr/local/etc/redis/sentinel.conf /data/sentinel.conf && redis-server /data/sentinel.conf --sentinel"]
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./ops/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+      - core_redis_sentinel_3_data:/data
+    depends_on:
+      core-redis-master:
+        condition: service_healthy
+      core-redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel master core-timer | grep -q core-timer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  support-redis:
+    image: redis:7.2
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./ops/redis/support.conf:/usr/local/etc/redis/redis.conf:ro
+      - support_redis_data:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -77,5 +181,10 @@ services:
 
 volumes:
   mysql_data:
-  redis_data:
+  core_redis_master_data:
+  core_redis_replica_data:
+  core_redis_sentinel_1_data:
+  core_redis_sentinel_2_data:
+  core_redis_sentinel_3_data:
+  support_redis_data:
   kafka_data:

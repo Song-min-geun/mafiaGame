@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.example.mafiagame.game.domain.state.GameState;
@@ -28,7 +29,7 @@ public class RedisTimerService {
     public RedisTimerService(
             GameStateRepository gameStateRepository,
             GameTimerRepository gameTimerRepository,
-            RedissonClient redissonClient) {
+            @Qualifier("coreRedissonClient") RedissonClient redissonClient) {
         this.gameStateRepository = gameStateRepository;
         this.gameTimerRepository = gameTimerRepository;
         this.redissonClient = redissonClient;
