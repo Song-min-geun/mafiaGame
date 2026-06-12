@@ -18,5 +18,9 @@ public abstract class RedisTestContainerSupport {
     static void overrideRedisProps(DynamicPropertyRegistry registry) {
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("mafiagame.redis.core.host", REDIS::getHost);
+        registry.add("mafiagame.redis.core.port", () -> REDIS.getMappedPort(6379));
+        registry.add("mafiagame.redis.support.host", REDIS::getHost);
+        registry.add("mafiagame.redis.support.port", () -> REDIS.getMappedPort(6379));
     }
 }
