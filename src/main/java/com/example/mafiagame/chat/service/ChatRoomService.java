@@ -46,6 +46,7 @@ public class ChatRoomService {
 
     private static final String CHAT_LOG_PREFIX = "chat:logs:";
     private static final String ROOM_LOCK_PREFIX = "lock:room:";
+    private static final String USER_ROOM_LOCK_PREFIX = "lock:user-room:";
     private static final int AI_GENERATION_MSG_COUNT = 10;
     private static final int MAX_MESSAGE_LENGTH = 500;
 
@@ -247,13 +248,13 @@ public class ChatRoomService {
         ChatRoom room = request.toEntity(host);
 
         room.addParticipant(request.toHostParticipant(host));
-        redisService.saveChatRoom(room);
+        saveRoom(room);
 
         // RedisService를 통한 유저 세션 관리 강화 (옵션)
         try {
             redisService.saveUserSession(hostId, room.getRoomId(), null);
         } catch (Exception e) {
-            redisService.deleteChatRoom(room.getRoomId());
+            deleteRoom(room.getRoomId());
             log.error("채팅방 생성 중 세션 저장 실패. 롤백 수행 (방 삭제): roomId={}", room.getRoomId(), e);
             throw new CommonException(ErrorCode.CHAT_ROOM_CREATE_FAILED);
         }
@@ -267,16 +268,24 @@ public class ChatRoomService {
             return;
         }
 
-        String currentRoomId = redisService.getUserRoomId(request.userId());
-        if (currentRoomId != null && !currentRoomId.equals(roomId)) {
-            sendErrorMessageToUser(request.userId(), "이미 다른 방에 참여 중입니다.");
-            return;
-        }
-
+        String userLockKey = USER_ROOM_LOCK_PREFIX + request.userId();
         String lockKey = ROOM_LOCK_PREFIX + roomId;
+        RLock userLock = redissonClient.getLock(userLockKey);
         RLock lock = redissonClient.getLock(lockKey);
 
         try {
+            if (!userLock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                log.warn("[userJoin] 유저 락 획득 실패: roomId={}, userId={}", roomId, request.userId());
+                sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
+                return;
+            }
+
+            String currentRoomId = redisService.getUserRoomId(request.userId());
+            if (currentRoomId != null && !currentRoomId.equals(roomId)) {
+                sendErrorMessageToUser(request.userId(), "이미 다른 방에 참여 중입니다.");
+                return;
+            }
+
             if (!lock.tryLock(5, 10, TimeUnit.SECONDS)) {
                 log.warn("[userJoin] 락 획득 실패: roomId={}, userId={}", roomId, request.userId());
                 sendErrorMessageToUser(request.userId(), "잠시 후 다시 시도해주세요.");
@@ -286,6 +295,11 @@ public class ChatRoomService {
             ChatRoom room = getRoom(roomId);
             if (room == null) {
                 sendErrorMessageToUser(request.userId(), "채팅방이 존재하지 않습니다.");
+                return;
+            }
+
+            if (room.isParticipant(request.userId())) {
+                redisService.saveUserSession(request.userId(), roomId, null);
                 return;
             }
 
@@ -313,6 +327,9 @@ public class ChatRoomService {
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
+            }
+            if (userLock.isHeldByCurrentThread()) {
+                userLock.unlock();
             }
         }
     }

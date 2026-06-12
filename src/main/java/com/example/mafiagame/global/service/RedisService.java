@@ -140,10 +140,18 @@ public class RedisService {
      */
     public void saveUserSession(String userId, String roomId, String gameId) {
         String key = USER_SESSION_PREFIX + userId;
+
+        if (roomId == null && gameId == null) {
+            redisTemplate.delete(key);
+            return;
+        }
+
         String safeRoomId = nullToEmpty(roomId);
         String safeGameId = nullToEmpty(gameId);
         stringRedisTemplate.opsForHash().putAll(key, Map.of("roomId", safeRoomId, "gameId", safeGameId));
         stringRedisTemplate.expire(key, USER_SESSION_TTL);
+
+        // log.info("사용자 세션 저장: {} -> roomId: {}, gameId: {}", userId, roomId, gameId);
     }
 
     /**

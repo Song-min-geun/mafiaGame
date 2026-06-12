@@ -31,7 +31,7 @@ import groovy.json.JsonOutput
  */
 @RunWith(GrinderRunner)
 class TimerStressComparison {
-    
+
     public static String baseUrl = "http://localhost:8080"
     
     public static GTest createGameTest
@@ -51,11 +51,11 @@ class TimerStressComparison {
     public static void beforeProcess() {
         createGameTest = new GTest(1, "게임 생성")
         gameStatusTest = new GTest(2, "게임 상태 조회 (TPS 측정)")
-        
+
         request = new HTTPRequest()
         jsonSlurper = new JsonSlurper()
         HTTPPluginControl.getConnectionDefaults().timeout = 30000
-        
+
         grinder.logger.info("타이머 스트레스 테스트 초기화")
     }
     
@@ -143,19 +143,19 @@ class TimerStressComparison {
      */
     public void createGame() {
         if (!currentRoomId) return
-        
+
         // 4명 플레이어 구성
         def players = []
         for (int i = 1; i <= 4; i++) {
             def idx = ((threadNum + i - 1) % 10) + 1
             players.add([playerId: "dummy${idx}", isHost: (i == 1)])
         }
-        
+
         def payload = JsonOutput.toJson([
             roomId: currentRoomId,
             players: players
         ])
-        
+
         HTTPResponse response = request.POST(
             "${baseUrl}/api/game/create",
             payload.getBytes("UTF-8"),

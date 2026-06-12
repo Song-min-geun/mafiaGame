@@ -593,6 +593,11 @@ public class GameService {
             if (gameState == null)
                 return false;
 
+            GamePlayerState player = findPlayerById(gameState, playerId);
+            if (player == null) {
+                return false;
+            }
+
             if (gameState.getGamePhase() != GamePhase.DAY_DISCUSSION) {
                 return false;
             }
@@ -605,11 +610,8 @@ public class GameService {
             sendTimerUpdate(gameState);
             timerService.startTimer(gameState);
 
-            GamePlayerState player = findPlayerById(gameState, playerId);
-            if (player != null) {
-                sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
-                        player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
-            }
+            sendSystemMessage(gameState.getRoomId(), String.format("%s님이 시간을 %d초 %s했습니다.",
+                    player.getPlayerName(), Math.abs(seconds), seconds > 0 ? "연장" : "단축"));
             return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
