@@ -3,6 +3,7 @@ package com.example.mafiagame.support;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -15,6 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ActiveProfiles("test")
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@Import(TestKafkaConfig.class)
 public abstract class RedisTestContainerSupport {
 
     private static final int REDIS_PORT = 6379;

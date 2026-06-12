@@ -10,6 +10,7 @@ import com.example.mafiagame.game.domain.entity.Game;
 import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
+import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
 import com.example.mafiagame.global.error.CommonException;
@@ -40,6 +41,7 @@ public class ChatRoomService {
     private final GameQueryService gameQueryService;
     private final WebSocketMessageBroadcaster messageBroadcaster;
     private final SuggestionService suggestionService;
+    private final GameStateRepository gameStateRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final RedisService redisService;
@@ -59,13 +61,15 @@ public class ChatRoomService {
             GameQueryService gameQueryService,
             WebSocketMessageBroadcaster messageBroadcaster,
             SuggestionService suggestionService,
-            @Qualifier("stringRedisTemplate") StringRedisTemplate stringRedisTemplate,
-            @Qualifier("redissonClient") RedissonClient redissonClient,
+            GameStateRepository gameStateRepository,
+            @Qualifier("supportStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
+            @Qualifier("supportRedissonClient") RedissonClient redissonClient,
             RedisService redisService) {
         this.userService = userService;
         this.gameQueryService = gameQueryService;
         this.messageBroadcaster = messageBroadcaster;
         this.suggestionService = suggestionService;
+        this.gameStateRepository = gameStateRepository;
         this.stringRedisTemplate = stringRedisTemplate;
         this.redissonClient = redissonClient;
         this.redisService = redisService;

@@ -12,10 +12,13 @@ import com.example.mafiagame.game.domain.state.Team;
 import com.example.mafiagame.chat.domain.ChatUser;
 import com.example.mafiagame.game.state.GamePhaseFactory;
 import com.example.mafiagame.game.state.GamePhaseState;
+import com.example.mafiagame.kafka.config.KafkaTopics;
+import com.example.mafiagame.kafka.event.GameEndedEvent;
 import com.example.mafiagame.user.domain.Users;
 import com.example.mafiagame.user.repository.UsersRepository;
 
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import com.example.mafiagame.game.repository.GameRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
@@ -29,6 +32,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -63,6 +67,7 @@ public class GameService {
     private final PhaseResultProcessor phaseResultProcessor;
 
     private final RedisTemplate<String, ChatRoom> chatRoomRedisTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public GameService(
             GameRepository gameRepository,
@@ -76,7 +81,8 @@ public class GameService {
             RedisTimerService timerService,
             GamePhaseFactory gamePhaseFactory,
             PhaseResultProcessor phaseResultProcessor,
-            @Qualifier("chatRoomRedisTemplate") RedisTemplate<String, ChatRoom> chatRoomRedisTemplate) {
+            @Qualifier("chatRoomRedisTemplate") RedisTemplate<String, ChatRoom> chatRoomRedisTemplate,
+            KafkaTemplate<String, Object> kafkaTemplate) {
         this.gameRepository = gameRepository;
         this.gameStateRepository = gameStateRepository;
         this.gameQueryRepository = gameQueryRepository;
@@ -89,6 +95,7 @@ public class GameService {
         this.gamePhaseFactory = gamePhaseFactory;
         this.phaseResultProcessor = phaseResultProcessor;
         this.chatRoomRedisTemplate = chatRoomRedisTemplate;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     private static final String ROOM_KEY_PREFIX = "chatroom:";
@@ -387,13 +394,24 @@ public class GameService {
     }
 
     /**
-     * 게임 종료 후 부수 효과 처리 (Redis 삭제, 타이머 중지, 알림 발송)
+     * 게임 종료 후 부수 효과 처리 (Redis 삭제, 타이머 중지, 알림 발송, Kafka 이벤트 발행)
      */
     private void finalizeGameEnd(String gameId, String roomId, Team winnerTeam, List<GamePlayerState> players) {
         try {
             timerService.stopTimer(gameId);
             messageBroadcaster.sendGameEnded(roomId, winnerTeam, players);
             gameStateRepository.delete(gameId);
+
+            // Kafka: 게임 종료 이벤트 발행 (부스트 소진, 통계 집계 등 후속 처리용)
+            GameEndedEvent event = GameEndedEvent.builder()
+                    .eventId(UUID.randomUUID().toString())
+                    .gameId(gameId)
+                    .roomId(roomId)
+                    .winnerTeam(winnerTeam.name())
+                    .playerIds(players.stream().map(GamePlayerState::getPlayerId).toList())
+                    .build();
+            kafkaTemplate.send(KafkaTopics.GAME_ENDED, gameId, event);
+
             log.info("[endGame] 게임 종료 처리 완료: gameId={}, winner={}", gameId, winnerTeam);
         } catch (Exception e) {
             log.error("[endGame] 후속 처리 중 오류 발생 (DB는 커밋됨): gameId={}", gameId, e);
