@@ -1,6 +1,7 @@
 package com.example.mafiagame.order.consumer;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  * </p>
  */
 @Component
+@Profile("!test")
 @Slf4j
 @RequiredArgsConstructor
 public class OrderPaymentConsumer {
