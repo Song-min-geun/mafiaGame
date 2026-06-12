@@ -2,6 +2,7 @@ package com.example.mafiagame.game.service;
 
 import java.util.List;
 
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,7 +19,9 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class GameTimerWorker {
+public class GameTimerWorker implements DisposableBean {
+
+    private volatile boolean isRunning = true;
 
     private final GameTimerRepository gameTimerRepository;
     private final GameStateRepository gameStateRepository;
@@ -35,28 +38,49 @@ public class GameTimerWorker {
      */
     @Scheduled(fixedDelayString = "${game.timer.worker.poll-delay-ms:500}")
     public void pollDueTimers() {
-        long now = System.currentTimeMillis();
-        List<GameTimerJob> dueTimers = gameTimerRepository.claimDueTimers(now, batchSize, processingLeaseMillis);
-        for (GameTimerJob timerJob : dueTimers) {
-            process(timerJob);
+        try {
+            long now = System.currentTimeMillis();
+            List<GameTimerJob> dueTimers = gameTimerRepository.claimDueTimers(now, batchSize, processingLeaseMillis);
+            for (GameTimerJob timerJob : dueTimers) {
+                process(timerJob);
+            }
+        } catch (Exception e) {
+            if (isRunning) {
+                log.error("[GameTimerWorker] Error during pollDueTimers", e);
+            } else {
+                log.debug("[GameTimerWorker] Ignored error during pollDueTimers during shutdown", e);
+            }
         }
     }
 
     @Scheduled(fixedDelayString = "${game.timer.worker.requeue-delay-ms:2000}")
     public void requeueExpiredProcessingTimers() {
-        long now = System.currentTimeMillis();
-        List<GameTimerJob> expiredTimers = gameTimerRepository.claimExpiredProcessing(now, batchSize);
-        for (GameTimerJob timerJob : expiredTimers) {
-            if (!isProcessable(timerJob)) {
-                continue;
-            }
+        try {
+            long now = System.currentTimeMillis();
+            List<GameTimerJob> expiredTimers = gameTimerRepository.claimExpiredProcessing(now, batchSize);
+            for (GameTimerJob timerJob : expiredTimers) {
+                if (!isProcessable(timerJob)) {
+                    continue;
+                }
 
-            boolean requeued = gameTimerRepository.requeueIfCurrent(timerJob, now);
-            if (requeued) {
-                log.warn("[GameTimerWorker] processing lease expired. timer requeued: gameId={}, phase={}, currentPhase={}",
-                        timerJob.gameId(), timerJob.phase(), timerJob.currentPhase());
+                boolean requeued = gameTimerRepository.requeueIfCurrent(timerJob, now);
+                if (requeued) {
+                    log.warn("[GameTimerWorker] processing lease expired. timer requeued: gameId={}, phase={}, currentPhase={}",
+                            timerJob.gameId(), timerJob.phase(), timerJob.currentPhase());
+                }
+            }
+        } catch (Exception e) {
+            if (isRunning) {
+                log.error("[GameTimerWorker] Error during requeueExpiredProcessingTimers", e);
+            } else {
+                log.debug("[GameTimerWorker] Ignored error during requeueExpiredProcessingTimers during shutdown", e);
             }
         }
+    }
+
+    @Override
+    public void destroy() throws Exception {
+        this.isRunning = false;
     }
 
     private void process(GameTimerJob timerJob) {
