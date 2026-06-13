@@ -12,6 +12,7 @@ import com.example.mafiagame.game.domain.state.GamePhase;
 import com.example.mafiagame.game.domain.state.GameState;
 import com.example.mafiagame.game.domain.state.GamePlayerState;
 import com.example.mafiagame.game.domain.state.PlayerRole;
+import com.example.mafiagame.game.repository.GameQueryRepository;
 import com.example.mafiagame.game.repository.GameStateRepository;
 import com.example.mafiagame.game.service.GameQueryService;
 import com.example.mafiagame.game.service.SuggestionService;
@@ -63,6 +64,8 @@ class ChatRoomServiceTest {
     private RedissonClient redissonClient;
     @Mock
     private RedisService redisService;
+    @Mock
+    private GameQueryRepository gameQueryRepository;
 
     @Mock
     private RLock rLock;
@@ -127,7 +130,8 @@ class ChatRoomServiceTest {
         // given
         CreateRoomRequest request = new CreateRoomRequest("새로운 마피아 방");
         when(userService.getUserByLoginId("hostUser")).thenReturn(host);
-        doThrow(new RuntimeException("Redis error")).when(redisService).saveUserSession(anyString(), anyString(), any());
+        doThrow(new RuntimeException("Redis error")).when(redisService).saveUserSession(anyString(), anyString(),
+                any());
 
         // when & then
         assertThatThrownBy(() -> chatRoomService.createRoom(request, "hostUser"))
@@ -465,7 +469,7 @@ class ChatRoomServiceTest {
                 .gameId("game-123")
                 .gamePhase(GamePhase.DAY_DISCUSSION)
                 .build();
-        when(gameStateRepository.findByRoomId("room-123")).thenReturn(Optional.of(gameState));
+        when(gameQueryRepository.findByRoomId("room-123")).thenReturn(Optional.of(gameState));
 
         // 10번 메시지 전송
         for (int i = 1; i <= 10; i++) {
