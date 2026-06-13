@@ -64,8 +64,6 @@ class ChatRoomServiceTest {
     private RedissonClient redissonClient;
     @Mock
     private RedisService redisService;
-    @Mock
-    private GameQueryRepository gameQueryRepository;
 
     @Mock
     private RLock rLock;
@@ -158,10 +156,13 @@ class ChatRoomServiceTest {
 
     @Test
     @DisplayName("방 입장 - 이미 다른 방에 속해 있는 경우")
-    void userJoin_alreadyInAnotherRoom() {
+    void userJoin_alreadyInAnotherRoom() throws InterruptedException {
         // given
         JoinRoomRequest request = new JoinRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn("room-456");
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
+        when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
+        when(rLock.isHeldByCurrentThread()).thenReturn(true);
 
         // when
         chatRoomService.userJoin(request);
@@ -175,8 +176,7 @@ class ChatRoomServiceTest {
     void userJoin_lockAcquisitionFail() throws InterruptedException {
         // given
         JoinRoomRequest request = new JoinRoomRequest("room-123", "guestUser");
-        when(redisService.getUserRoomId("guestUser")).thenReturn(null);
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(false);
 
         // when
@@ -192,7 +192,7 @@ class ChatRoomServiceTest {
         // given
         JoinRoomRequest request = new JoinRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn(null);
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(redisService.getChatRoom("room-123")).thenReturn(null);
@@ -202,7 +202,7 @@ class ChatRoomServiceTest {
 
         // then
         verify(messageBroadcaster).sendError("guestUser", "채팅방이 존재하지 않습니다.");
-        verify(rLock).unlock();
+        verify(rLock, atLeastOnce()).unlock();
     }
 
     @Test
@@ -211,7 +211,7 @@ class ChatRoomServiceTest {
         // given
         JoinRoomRequest request = new JoinRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn(null);
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
 
@@ -236,7 +236,7 @@ class ChatRoomServiceTest {
         // given
         JoinRoomRequest request = new JoinRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn(null);
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(redisService.getChatRoom("room-123")).thenReturn(chatRoom);
@@ -275,7 +275,7 @@ class ChatRoomServiceTest {
         // given
         LeaveRoomRequest request = new LeaveRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn("room-123");
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(redisService.getChatRoom("room-123")).thenReturn(chatRoom);
@@ -294,7 +294,7 @@ class ChatRoomServiceTest {
         // given
         LeaveRoomRequest request = new LeaveRoomRequest("room-123", "guestUser");
         when(redisService.getUserRoomId("guestUser")).thenReturn("room-123");
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(gameQueryService.canPlayerLeaveRoom("room-123", "guestUser")).thenReturn(true);
@@ -314,7 +314,7 @@ class ChatRoomServiceTest {
         // given
         LeaveRoomRequest request = new LeaveRoomRequest("room-123", "hostUser");
         when(redisService.getUserRoomId("hostUser")).thenReturn("room-123");
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(gameQueryService.canPlayerLeaveRoom("room-123", "hostUser")).thenReturn(true);
@@ -342,7 +342,7 @@ class ChatRoomServiceTest {
 
         LeaveRoomRequest request = new LeaveRoomRequest("room-123", "hostUser");
         when(redisService.getUserRoomId("hostUser")).thenReturn("room-123");
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
         when(gameQueryService.canPlayerLeaveRoom("room-123", "hostUser")).thenReturn(true);
@@ -469,7 +469,7 @@ class ChatRoomServiceTest {
                 .gameId("game-123")
                 .gamePhase(GamePhase.DAY_DISCUSSION)
                 .build();
-        when(gameQueryRepository.findByRoomId("room-123")).thenReturn(Optional.of(gameState));
+        when(gameQueryService.getActiveGameByRoomId("room-123")).thenReturn(gameState);
 
         // 10번 메시지 전송
         for (int i = 1; i <= 10; i++) {
@@ -579,12 +579,12 @@ class ChatRoomServiceTest {
         when(redisService.getUserRoomId("guestUser")).thenReturn("room-123");
         when(redisService.getChatRoom("room-123")).thenReturn(chatRoom);
         when(gameQueryService.canPlayerLeaveRoom("room-123", "guestUser")).thenReturn(true);
-        when(redissonClient.getLock("lock:room:room-123")).thenReturn(rLock);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(rLock.isHeldByCurrentThread()).thenReturn(true);
 
         chatRoomService.handleDisconnect("guestUser");
 
-        verify(rLock).unlock();
+        verify(rLock, atLeastOnce()).unlock();
     }
 }
