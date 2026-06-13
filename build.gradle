@@ -89,7 +89,7 @@ dependencies {
     //Redisson (분산 락)
     implementation 'org.redisson:redisson-spring-boot-starter:3.27.0'
     
-    //nGinder
+    //prometheus
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-registry-prometheus'
 
@@ -114,6 +114,7 @@ dependencies {
 
     // Testcontainers Kafka
     testImplementation 'org.testcontainers:kafka'
+
 }
 
 tasks.named('test') {

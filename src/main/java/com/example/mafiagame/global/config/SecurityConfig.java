@@ -60,7 +60,8 @@ public class SecurityConfig {
                                                 .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/webjars/**",
                                                                 "/favicon.ico")
                                                 .permitAll()
-                                                .requestMatchers("/ws/**").permitAll();
+                                                .requestMatchers("/ws/**").permitAll()
+                                                .requestMatchers("/actuator/prometheus", "/actuator/metrics").permitAll();
 
                                         if (isDevEndpointAccessAllowed()) {
                                                 auth.requestMatchers("/h2-console/**", "/api/test/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll();
