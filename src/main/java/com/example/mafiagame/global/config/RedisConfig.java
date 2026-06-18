@@ -94,7 +94,8 @@ public class RedisConfig {
     @Primary
     @SpringSessionRedisConnectionFactory
     public RedisConnectionFactory supportRedisConnectionFactory() {
-        RedisStandaloneConfiguration standaloneConfiguration = new RedisStandaloneConfiguration(supportHost, supportPort);
+        RedisStandaloneConfiguration standaloneConfiguration = new RedisStandaloneConfiguration(supportHost,
+                supportPort);
         standaloneConfiguration.setDatabase(supportDatabase);
         if (hasText(supportPassword)) {
             standaloneConfiguration.setPassword(RedisPassword.of(supportPassword));
@@ -108,7 +109,7 @@ public class RedisConfig {
         return new StringRedisTemplate(connectionFactory);
     }
 
-    @Bean
+    @Bean(name = "supportStringRedisTemplate")
     @Primary
     public StringRedisTemplate stringRedisTemplate(
             @Qualifier("supportRedisConnectionFactory") RedisConnectionFactory connectionFactory) {

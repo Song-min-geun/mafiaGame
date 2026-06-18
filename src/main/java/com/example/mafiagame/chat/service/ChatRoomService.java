@@ -62,8 +62,8 @@ public class ChatRoomService {
             WebSocketMessageBroadcaster messageBroadcaster,
             SuggestionService suggestionService,
             GameStateRepository gameStateRepository,
-            @Qualifier("supportStringRedisTemplate") StringRedisTemplate stringRedisTemplate,
-            @Qualifier("supportRedissonClient") RedissonClient redissonClient,
+            StringRedisTemplate stringRedisTemplate,
+            RedissonClient redissonClient,
             RedisService redisService) {
         this.userService = userService;
         this.gameQueryService = gameQueryService;
